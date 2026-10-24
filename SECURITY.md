@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report security vulnerabilities privately by email to
-[security@pantechdynamics.com](mailto:security@pantechdynamics.com). **Do not open a public GitHub
+[info@pantechdynamics.com](mailto:info@pantechdynamics.com). **Do not open a public GitHub
 issue, discussion or pull request** for a suspected vulnerability.
 
 Include as much of the following as you can:
