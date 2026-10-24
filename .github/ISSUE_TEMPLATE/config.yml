@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Pantech-Dynamics/pantech-go/security/policy
+    about: Please report vulnerabilities privately as described in SECURITY.md, not in a public issue.
+  - name: Pantech Dynamics support
+    url: https://pantechdynamics.com/contact
+    about: Questions about your account, billing or the platform itself.
+  - name: API documentation
+    url: https://docs.pantechdynamics.com/api
+    about: Reference documentation for the public API.

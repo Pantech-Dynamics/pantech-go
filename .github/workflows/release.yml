@@ -1,0 +1,82 @@
+name: Release
+
+# Push a tag to release:  git tag v0.1.0 && git push origin v0.1.0
+# A tag with a hyphen (v0.2.0-rc.1) is published as a pre-release.
+# A Go module needs no artifacts: the tag is what `go get` fetches. This
+# checks the tag and publishes a GitHub release whose notes are the tag's
+# CHANGELOG.md section.
+
+on:
+  push:
+    tags: ["v*"]
+  # Called by auto-release.yml: a tag pushed with GITHUB_TOKEN cannot start
+  # this workflow itself, so it is called with the version it tagged.
+  workflow_call:
+    inputs:
+      version:
+        description: The tag to release, such as v0.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # publish the GitHub release
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: refs/tags/${{ inputs.version || github.ref_name }}
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - run: go vet ./...
+
+      - run: go test -race ./...
+
+      - name: Release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The lines after "## $VERSION " up to the next "## " heading.
+          awk -v v="## $VERSION " 'index($0, v) == 1 { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md > notes.md
+          case "$VERSION" in
+            *-*) [ -s notes.md ] || echo "Pre-release $VERSION." > notes.md ;;
+            *)
+              if ! grep -q '[^[:space:]]' notes.md; then
+                echo "::error::CHANGELOG.md has no '## $VERSION' section: add it on main, then tag again"
+                exit 1
+              fi
+              ;;
+          esac
+          cat notes.md
+
+      - name: Publish the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          flags=(--title "$VERSION" --notes-file notes.md --verify-tag)
+          case "$VERSION" in *-*) flags+=(--prerelease) ;; *) flags+=(--latest) ;; esac
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release edit "$VERSION" --notes-file notes.md
+          else
+            gh release create "$VERSION" "${flags[@]}"
+          fi
+
+      - name: Ask the Go module proxy to fetch the new version
+        continue-on-error: true
+        run: cd "$(mktemp -d)" && GOPROXY=https://proxy.golang.org go list -m "github.com/Pantech-Dynamics/pantech-go@$VERSION"

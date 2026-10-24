@@ -1,0 +1,48 @@
+name: Spec drift
+
+# Weekly: download the published public API spec and check that every
+# operation in it has an SDK method. A failure means the API grew (or changed)
+# and the SDK needs the new methods: see "Keeping in step with the spec" in
+# CONTRIBUTING.md.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write # open an issue when the spec drifts
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Download the published spec
+        run: scripts/sync-spec.sh
+
+      - name: Show what changed
+        run: git diff --stat -- testdata/public-api.yaml
+
+      - name: Every operation has a method, on the spec's route
+        run: go test -run 'TestSpecCoverage|TestSpecRoutes' -v ./
+
+      - name: Open an issue
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="The public API spec has operations the SDK does not cover"
+          if [ -z "$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[].number')" ]; then
+            gh issue create --title "$title" --body "The weekly spec-drift run failed: $RUN_URL. Follow \"Keeping in step with the API spec\" in CONTRIBUTING.md."
+          fi

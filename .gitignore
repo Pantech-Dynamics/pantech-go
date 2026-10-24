@@ -1,0 +1,19 @@
+# Build and test output
+/dist/
+*.test
+*.out
+coverage.*
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+
+# macOS iCloud sync copies ("client 2.go") break the build
+* 2.*
+* 2
+
+# Never commit secrets
+.env
+.env.*
+/build/

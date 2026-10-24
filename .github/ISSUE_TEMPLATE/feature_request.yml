@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an improvement to the SDK.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The use case, and what is hard or impossible today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How you would like it to work, ideally with a short code example.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
