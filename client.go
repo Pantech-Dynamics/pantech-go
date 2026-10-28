@@ -27,7 +27,7 @@ import (
 )
 
 // Version is this SDK's version. It goes into the default User-Agent.
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 // DefaultBaseURL is the production public API. Every path is relative to it.
 const DefaultBaseURL = "https://api.pantechdynamics.com/public/v1"
@@ -73,6 +73,7 @@ type Client struct {
 	Kubernetes          *KubernetesService
 	SSHKeys             *SSHKeysService
 	Webhooks            *WebhooksService
+	Migrate             *MigrateService
 	Operations          *OperationsService
 
 	baseURL    string
@@ -197,6 +198,7 @@ func NewClient(opts ...Option) (*Client, error) {
 	c.Kubernetes = &KubernetesService{c}
 	c.SSHKeys = &SSHKeysService{c}
 	c.Webhooks = &WebhooksService{c}
+	c.Migrate = &MigrateService{c}
 	c.Operations = &OperationsService{c}
 	return c, nil
 }

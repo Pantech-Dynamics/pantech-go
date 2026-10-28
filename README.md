@@ -6,9 +6,10 @@
 
 The official Go SDK for the [Pantech Dynamics public API](https://docs.pantechdynamics.com/api):
 instances, VPC networks, firewalls, public IPs, load balancers, volumes, snapshots, managed
-databases, managed Kubernetes, SSH keys, webhooks, billing and usage.
+databases, managed Kubernetes, SSH keys, webhooks, billing, usage, and moving from another cloud.
 
-- Every operation in the public API has a typed method.
+- Every operation in the public API has a typed method, except agent sessions, which answer only
+  AI apps connected through Pantech's MCP server.
 - Writes carry an `Idempotency-Key` that is reused when a request is retried, so a retry never
   makes a change twice.
 - Errors are typed (`*pantech.Error`) with the API's stable problem code.
@@ -53,7 +54,7 @@ func main() {
 ```
 
 More in [`examples/`](examples): creating an instance, listing everything, following an
-operation, and a webhook receiver.
+operation, a webhook receiver, and moving from AWS.
 
 ## Authentication
 
@@ -83,7 +84,7 @@ a `Client` does not show it. `c.Me.Get(ctx)` describes the key; `c.Me.Revoke(ctx
 
 `c.Instances`, `c.Networks`, `c.Subnets`, `c.FirewallRules`, `c.PublicIPs`,
 `c.PortForwardingRules`, `c.SecurityGroups`, `c.LoadBalancers`, `c.Volumes`, `c.Snapshots`,
-`c.Databases`, `c.Kubernetes`, `c.SSHKeys`, `c.Webhooks`, `c.Operations`, `c.Catalog` (regions,
+`c.Databases`, `c.Kubernetes`, `c.SSHKeys`, `c.Webhooks`, `c.Migrate`, `c.Operations`, `c.Catalog` (regions,
 plans, images, disk offerings, database engines, Kubernetes versions, price estimates),
 `c.Billing` (credit, receipts, usage) and `c.Me`.
 
@@ -167,6 +168,30 @@ or follow it over Server-Sent Events with `c.Operations.Stream(ctx, id)`.
 A new instance or database is an order, paid first: `c.Instances.WaitForOrder` and
 `c.Databases.WaitForOrder` wait until it is `provisioned` and return an `*pantech.OrderError` when
 it ends `payment_failed` or `failed`.
+
+## Move from another cloud
+
+`c.Migrate` connects an AWS account through a read-only role that only Pantech can assume (no
+access keys are shared), scans what runs there, and plans the move with a price comparison and a
+Terraform export. Nothing is created on Pantech until you apply the Terraform.
+
+```go
+conn, err := c.Migrate.CreateConnection(ctx, pantech.CreateCloudConnectionRequest{Name: "Production AWS"})
+// Create the stack from *conn.Setup.QuickCreateURL (or conn.Setup.Template) in AWS, then:
+_, err = c.Migrate.UpdateConnection(ctx, conn.ID, pantech.UpdateCloudConnectionRequest{RoleARN: &roleARN})
+conn, err = c.Migrate.WaitForConnection(ctx, conn.ID, nil)
+
+scan, err := c.Migrate.StartScan(ctx, conn.ID)
+scan, err = c.Migrate.WaitForScan(ctx, scan.ID, nil)
+
+plan, err := c.Migrate.CreateMigration(ctx, pantech.CreateMigrationRequest{ScanID: scan.ID, Name: "Move"})
+fmt.Println(plan.Estimate.PantechMonthlyMinor, plan.Estimate.SourceMonthlyMinor)
+tf, err := c.Migrate.ExportTerraform(ctx, plan.ID) // tf.Files: main.tf, variables.tf
+```
+
+A failed connection or scan returns a `*pantech.CloudFailureError` whose `Failure.Message` says
+what to do. `c.Migrate.UpdateItem` excludes an item or changes its plan, size, range or role before
+you export. The whole flow is in [`examples/migrate-from-aws`](examples/migrate-from-aws).
 
 ## Webhooks
 

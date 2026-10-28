@@ -69,6 +69,8 @@ The SDK follows the published OpenAPI spec at
      `opts ...RequestOption` last. A paginated list gets `List` returning `*Page[T]` and an
      `All...` iterator; a `202` returns `*Accepted`.
    - add the row to `operationMethods` in `coverage_test.go`.
+   - an operation the SDK deliberately leaves out goes in `notInSDK` in `coverage_test.go`, with
+     the reason.
 4. A route that does not replay on the same Idempotency-Key goes in `noReplay` in `retry.go`, with
    a test in `retry_test.go`.
 

@@ -99,6 +99,8 @@ type CreateLoadBalancerRequest struct {
 	PublicPort int `json:"public_port"`
 	// The port on each target.
 	PrivatePort *int `json:"private_port,omitempty"`
+	// The listener protocol. Only `tcp` is offered: HTTP and HTTPS are balanced as `tcp`. One of: tcp.
+	Protocol *string `json:"protocol,omitempty"`
 	// Source addresses allowed to connect, as IPv4 CIDRs (at most 20).
 	CIDRList *[]string `json:"cidr_list,omitempty"`
 	// Instances to spread traffic across (at most 50).
@@ -297,6 +299,14 @@ type KubernetesCluster struct {
 	PublicIP *string `json:"public_ip"`
 	// The public port the API server is reachable on; null until one is routed, and for a private endpoint.
 	PublicPort *int `json:"public_port"`
+	// What Kubernetes last reported of the nodes while the cluster runs; null while it is not running. One of: healthy, degraded, unknown.
+	NodeHealth *string `json:"node_health"`
+	// Why NodeHealth is `degraded` when the cause is the cluster itself rather than a node; null otherwise.
+	NodeHealthReason *string `json:"node_health_reason"`
+	// Nodes Kubernetes reports Ready, as of NodesCheckedAt; null when NodeHealth is unknown or null.
+	ReadyNodes *int `json:"ready_nodes"`
+	// When the nodes were last read; null if never.
+	NodesCheckedAt *time.Time `json:"nodes_checked_at"`
 	// Storage your workloads' persistent volume claims use, billed with the nodes' disks.
 	VolumeStorageGB int `json:"volume_storage_gb"`
 	// Cluster architecture kind, e.g. `appliance`.
@@ -1938,4 +1948,423 @@ type KubernetesRoutingSynced struct {
 	APIPort     *int                   `json:"api_port"`
 	SyncedPorts []KubernetesSyncedPort `json:"synced_ports"`
 	Message     string                 `json:"message"`
+}
+
+// CloudFailure is the API's cloud failure object.
+// Why the last check or scan failed; null when it didn't.
+type CloudFailure struct {
+	// One of: assume_role_denied, permission_missing, provider_unavailable, scan_too_large, internal.
+	Code string `json:"code"`
+	// What to do about it.
+	Message string `json:"message"`
+}
+
+// CloudConnectionSetup is the API's cloud connection setup object.
+// What you need to create the role in your account.
+type CloudConnectionSetup struct {
+	// Pantech's identity provider URL, which your role trusts.
+	IssuerURL string `json:"issuer_url"`
+	// The audience every token carries.
+	Audience string `json:"audience"`
+	// The subject your role requires: this connection's id.
+	Subject string `json:"subject"`
+	// Opens AWS's create-stack page with this template and connection filled in; null when not offered.
+	QuickCreateURL *string `json:"quick_create_url"`
+	// A CloudFormation template (JSON) for this connection: a read-only role and, unless one exists, the identity provider.
+	Template string `json:"template"`
+}
+
+// CloudConnection is the API's cloud connection object.
+// A connection to an account in another cloud, through a read-only role.
+type CloudConnection struct {
+	ID string `json:"id"`
+	// One of: aws.
+	Provider string `json:"provider"`
+	Name     string `json:"name"`
+	// `awaiting_role`, `verifying`, `connected` or `failed`. One of: awaiting_role, verifying, connected, failed.
+	Status       string        `json:"status"`
+	Failure      *CloudFailure `json:"failure"`
+	RoleARN      *string       `json:"role_arn"`
+	AWSAccountID *string       `json:"aws_account_id"`
+	VerifiedAt   *time.Time    `json:"verified_at"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	// What you need to create the role in your account.
+	Setup CloudConnectionSetup `json:"setup"`
+}
+
+// CreateCloudConnectionRequest is the API's create cloud connection request object.
+type CreateCloudConnectionRequest struct {
+	// `aws`, the default. One of: aws.
+	Provider *string `json:"provider,omitempty"`
+	// 1 to 100 characters, for example `Production AWS`.
+	Name string `json:"name"`
+}
+
+// UpdateCloudConnectionRequest is the API's update cloud connection request object.
+type UpdateCloudConnectionRequest struct {
+	Name *string `json:"name,omitempty"`
+	// The stack's RoleArn output.
+	RoleARN *string `json:"role_arn,omitempty"`
+	// Check the role again.
+	Retry *bool `json:"retry,omitempty"`
+}
+
+// CloudScanCounts is the API's cloud scan counts object.
+type CloudScanCounts struct {
+	Instances      int `json:"instances"`
+	Volumes        int `json:"volumes"`
+	Networks       int `json:"networks"`
+	Subnets        int `json:"subnets"`
+	SecurityGroups int `json:"security_groups"`
+	PublicIPs      int `json:"public_ips"`
+	LoadBalancers  int `json:"load_balancers"`
+	Databases      int `json:"databases"`
+	Buckets        int `json:"buckets"`
+	Users          int `json:"users"`
+	SSHKeys        int `json:"ssh_keys"`
+}
+
+// CloudCostMonth is the API's cloud cost month object.
+type CloudCostMonth struct {
+	// YYYY-MM.
+	Month       string `json:"month"`
+	AmountMinor int64  `json:"amount_minor"`
+}
+
+// CloudCost is the API's cloud cost object.
+// The source account's whole bill, every service.
+type CloudCost struct {
+	Currency string `json:"currency"`
+	// Average of the months, in minor units of currency.
+	AverageMonthlyMinor int64            `json:"average_monthly_minor"`
+	Months              []CloudCostMonth `json:"months"`
+}
+
+// CloudInstance is a server a scan found.
+type CloudInstance struct {
+	ID               string     `json:"id"`
+	Name             *string    `json:"name"`
+	Region           string     `json:"region"`
+	Zone             *string    `json:"zone"`
+	InstanceType     string     `json:"instance_type"`
+	State            string     `json:"state"`
+	VCPU             *int       `json:"vcpu"`
+	MemoryMiB        *int       `json:"memory_mib"`
+	Architecture     string     `json:"architecture"`
+	Platform         string     `json:"platform"`
+	VolumeIDs        []string   `json:"volume_ids"`
+	NetworkID        *string    `json:"network_id"`
+	SubnetID         *string    `json:"subnet_id"`
+	SecurityGroupIDs []string   `json:"security_group_ids"`
+	PublicIP         *string    `json:"public_ip"`
+	PrivateIP        *string    `json:"private_ip"`
+	KeyName          *string    `json:"key_name"`
+	LaunchedAt       *time.Time `json:"launched_at"`
+}
+
+// CloudVolume is a disk a scan found.
+type CloudVolume struct {
+	ID         string  `json:"id"`
+	Region     string  `json:"region"`
+	Zone       *string `json:"zone"`
+	Type       string  `json:"type"`
+	SizeGB     int     `json:"size_gb"`
+	AttachedTo *string `json:"attached_to"`
+	Device     *string `json:"device"`
+	Encrypted  bool    `json:"encrypted"`
+}
+
+// CloudNetwork is a network a scan found.
+type CloudNetwork struct {
+	ID        string  `json:"id"`
+	Region    string  `json:"region"`
+	Name      *string `json:"name"`
+	CIDR      string  `json:"cidr"`
+	IsDefault bool    `json:"is_default"`
+}
+
+// CloudSubnet is a subnet a scan found.
+type CloudSubnet struct {
+	ID           string  `json:"id"`
+	Region       string  `json:"region"`
+	NetworkID    string  `json:"network_id"`
+	Name         *string `json:"name"`
+	CIDR         string  `json:"cidr"`
+	Zone         *string `json:"zone"`
+	MapsPublicIP bool    `json:"maps_public_ip"`
+}
+
+// CloudSecurityGroupRule is one rule of a firewall group a scan found.
+type CloudSecurityGroupRule struct {
+	// One of: ingress, egress.
+	Direction     string  `json:"direction"`
+	Protocol      string  `json:"protocol"`
+	FromPort      *int    `json:"from_port"`
+	ToPort        *int    `json:"to_port"`
+	CIDR          *string `json:"cidr"`
+	IPv6CIDR      *string `json:"ipv6_cidr"`
+	SourceGroupID *string `json:"source_group_id"`
+	PrefixListID  *string `json:"prefix_list_id"`
+}
+
+// CloudSecurityGroup is a firewall group a scan found.
+type CloudSecurityGroup struct {
+	ID          string                   `json:"id"`
+	Region      string                   `json:"region"`
+	NetworkID   *string                  `json:"network_id"`
+	Name        string                   `json:"name"`
+	Description *string                  `json:"description"`
+	Rules       []CloudSecurityGroupRule `json:"rules"`
+}
+
+// CloudPublicIP is a public address a scan found.
+type CloudPublicIP struct {
+	ID         string  `json:"id"`
+	Region     string  `json:"region"`
+	Address    string  `json:"address"`
+	InstanceID *string `json:"instance_id"`
+}
+
+// CloudLoadBalancer is a load balancer a scan found.
+type CloudLoadBalancer struct {
+	ID        string              `json:"id"`
+	Region    string              `json:"region"`
+	Name      string              `json:"name"`
+	Type      string              `json:"type"`
+	Scheme    string              `json:"scheme"`
+	NetworkID *string             `json:"network_id"`
+	Listeners []MigrationListener `json:"listeners"`
+}
+
+// CloudDatabase is a database a scan found.
+type CloudDatabase struct {
+	ID                 string `json:"id"`
+	Region             string `json:"region"`
+	Engine             string `json:"engine"`
+	EngineVersion      string `json:"engine_version"`
+	InstanceClass      string `json:"instance_class"`
+	VCPU               *int   `json:"vcpu"`
+	MemoryMiB          *int   `json:"memory_mib"`
+	StorageGB          int    `json:"storage_gb"`
+	MultiAZ            bool   `json:"multi_az"`
+	PubliclyAccessible bool   `json:"publicly_accessible"`
+}
+
+// CloudBucket is a storage bucket a scan found, by name.
+type CloudBucket struct {
+	Name      string     `json:"name"`
+	Region    *string    `json:"region"`
+	CreatedAt *time.Time `json:"created_at"`
+}
+
+// CloudUser is a person a scan found.
+type CloudUser struct {
+	Name      string     `json:"name"`
+	Email     *string    `json:"email"`
+	IsAdmin   bool       `json:"is_admin"`
+	CreatedAt *time.Time `json:"created_at"`
+}
+
+// CloudSSHKey is an SSH key a scan found.
+type CloudSSHKey struct {
+	Name        string  `json:"name"`
+	Region      string  `json:"region"`
+	Fingerprint *string `json:"fingerprint"`
+	PublicKey   *string `json:"public_key"`
+}
+
+// CloudInventory is the API's cloud inventory object.
+// Everything a scan found. Names and tags are the account owner's own text.
+type CloudInventory struct {
+	Instances      []CloudInstance      `json:"instances"`
+	Volumes        []CloudVolume        `json:"volumes"`
+	Networks       []CloudNetwork       `json:"networks"`
+	Subnets        []CloudSubnet        `json:"subnets"`
+	SecurityGroups []CloudSecurityGroup `json:"security_groups"`
+	PublicIPs      []CloudPublicIP      `json:"public_ips"`
+	LoadBalancers  []CloudLoadBalancer  `json:"load_balancers"`
+	Databases      []CloudDatabase      `json:"databases"`
+	Buckets        []CloudBucket        `json:"buckets"`
+	Users          []CloudUser          `json:"users"`
+	SSHKeys        []CloudSSHKey        `json:"ssh_keys"`
+}
+
+// CloudScan is the API's cloud scan object.
+// A read of everything a connection's role can see.
+type CloudScan struct {
+	ID           string `json:"id"`
+	ConnectionID string `json:"connection_id"`
+	// One of: queued, running, succeeded, failed.
+	Status       string        `json:"status"`
+	Failure      *CloudFailure `json:"failure"`
+	CreatedAt    time.Time     `json:"created_at"`
+	StartedAt    *time.Time    `json:"started_at"`
+	FinishedAt   *time.Time    `json:"finished_at"`
+	AWSAccountID *string       `json:"aws_account_id"`
+	// Regions read.
+	Regions []string         `json:"regions"`
+	Counts  *CloudScanCounts `json:"counts"`
+	// The source account's whole bill, every service.
+	Cost *CloudCost `json:"cost"`
+	// Parts not read, e.g. `cost_unavailable` or `region_denied:eu-south-1`.
+	Warnings []string `json:"warnings"`
+	// Kinds cut at 2,000 items.
+	Truncated []string `json:"truncated"`
+	// Everything the scan found; only with GetCloudScanParams{Include: "inventory"}.
+	Inventory *CloudInventory `json:"inventory"`
+}
+
+// MigrationListener is the API's migration listener object.
+type MigrationListener struct {
+	Protocol string `json:"protocol"`
+	Port     int    `json:"port"`
+}
+
+// MigrationRule is the API's migration rule object.
+type MigrationRule struct {
+	// One of: ingress, egress.
+	Direction string `json:"direction"`
+	// One of: tcp, udp, icmp, all.
+	Protocol  string  `json:"protocol"`
+	PortRange *string `json:"port_range"`
+	CIDR      string  `json:"cidr"`
+}
+
+// MigrationFlag is the API's migration flag object.
+type MigrationFlag struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	// A blocking flag makes the item unsupported.
+	Blocking bool `json:"blocking"`
+}
+
+// MigrationItemSource is the API's migration item source object.
+type MigrationItemSource struct {
+	ID        string  `json:"id"`
+	Name      *string `json:"name"`
+	Region    *string `json:"region"`
+	Summary   string  `json:"summary"`
+	VCPU      *int    `json:"vcpu"`
+	MemoryMiB *int    `json:"memory_mib"`
+	DiskGB    *int    `json:"disk_gb"`
+}
+
+// MigrationItemTarget is the API's migration item target object.
+// What the item becomes on Pantech; fields that don't apply to its kind are null or empty.
+type MigrationItemTarget struct {
+	PlanSlug      *string         `json:"plan_slug"`
+	DiskGB        *int            `json:"disk_gb"`
+	CIDR          *string         `json:"cidr"`
+	NetworkKey    *string         `json:"network_key"`
+	SubnetKey     *string         `json:"subnet_key"`
+	InstanceKey   *string         `json:"instance_key"`
+	Rules         []MigrationRule `json:"rules"`
+	Engine        *string         `json:"engine"`
+	EngineVersion *string         `json:"engine_version"`
+	StorageGB     *int            `json:"storage_gb"`
+	// One of: admin, member.
+	Role      *string             `json:"role"`
+	Email     *string             `json:"email"`
+	PublicKey *string             `json:"public_key"`
+	Listeners []MigrationListener `json:"listeners"`
+}
+
+// MigrationItem is the API's migration item object.
+type MigrationItem struct {
+	// Stable across edits: kind, region and the source id.
+	Key string `json:"key"`
+	// One of: network, subnet, security_group, instance, volume, public_ip, load_balancer, database, ssh_key, user, bucket.
+	Kind   string              `json:"kind"`
+	Source MigrationItemSource `json:"source"`
+	// One of: planned, excluded, unsupported.
+	Status string          `json:"status"`
+	Flags  []MigrationFlag `json:"flags"`
+	// What the item becomes on Pantech.
+	Target MigrationItemTarget `json:"target"`
+}
+
+// MigrationSummary is the API's migration summary object.
+type MigrationSummary struct {
+	Planned     int `json:"planned"`
+	Excluded    int `json:"excluded"`
+	Unsupported int `json:"unsupported"`
+	// Planned items per kind.
+	ByKind map[string]int `json:"by_kind"`
+}
+
+// MigrationEstimate is the API's migration estimate object.
+// Pantech's monthly price for the plan next to the source's monthly bill, computed when read.
+type MigrationEstimate struct {
+	Currency string `json:"currency"`
+	// False when part of the plan could not be priced; then PantechMonthlyMinor is nil.
+	PantechPriced       bool   `json:"pantech_priced"`
+	PantechMonthlyMinor *int64 `json:"pantech_monthly_minor"`
+	// What the Pantech price includes: servers, volumes, networks.
+	Covers []string `json:"covers"`
+	// Planned items the price leaves out, e.g. databases.
+	NotCovered         []string `json:"not_covered"`
+	SourceKnown        bool     `json:"source_known"`
+	SourceMonthlyMinor *int64   `json:"source_monthly_minor"`
+	SourceCurrency     *string  `json:"source_currency"`
+	SourceMonths       int      `json:"source_months"`
+	// `whole_account`: the source figure is the whole cloud bill. One of: whole_account.
+	SourceScope string `json:"source_scope"`
+}
+
+// Migration is the API's migration object.
+// A plan to move what a scan found to Pantech.
+type Migration struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Region       string `json:"region"`
+	ConnectionID string `json:"connection_id"`
+	ScanID       string `json:"scan_id"`
+	// `planning`. Copying arrives in a later release. One of: planning.
+	Stage   string           `json:"stage"`
+	Version int              `json:"version"`
+	Summary MigrationSummary `json:"summary"`
+	// Nil in a list.
+	Estimate *MigrationEstimate `json:"estimate"`
+	// Nil in a list.
+	Items     []MigrationItem `json:"items"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// CreateMigrationRequest is the API's create migration request object.
+type CreateMigrationRequest struct {
+	ScanID string `json:"scan_id"`
+	Name   string `json:"name"`
+	// A Pantech region code; the first region when left out.
+	Region *string `json:"region,omitempty"`
+}
+
+// RenameMigrationRequest is the API's rename migration request object.
+type RenameMigrationRequest struct {
+	Name string `json:"name"`
+}
+
+// UpdateMigrationItemRequest is the API's update migration item request object.
+type UpdateMigrationItemRequest struct {
+	// The item's key.
+	Key       string  `json:"key"`
+	Excluded  *bool   `json:"excluded,omitempty"`
+	PlanSlug  *string `json:"plan_slug,omitempty"`
+	StorageGB *int    `json:"storage_gb,omitempty"`
+	CIDR      *string `json:"cidr,omitempty"`
+	// One of: member, admin.
+	Role  *string `json:"role,omitempty"`
+	Email *string `json:"email,omitempty"`
+}
+
+// MigrationTerraformFile is one file of a Terraform export.
+type MigrationTerraformFile struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
+// MigrationTerraform is the API's migration terraform object.
+type MigrationTerraform struct {
+	Files []MigrationTerraformFile `json:"files"`
 }

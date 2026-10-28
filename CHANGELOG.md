@@ -5,6 +5,27 @@ adds a line under **Unreleased**. Releasing renames that heading to the version 
 (`## v0.2.0 — 2026-11-02`); a push to main whose newest heading is an untagged version tags it and
 publishes a GitHub release with that section as its notes.
 
+## v0.2.0 — 2026-10-28
+
+### Added
+
+- `Migrate`, for moving from another cloud: `CreateConnection`, `ListConnections`,
+  `GetConnection`, `UpdateConnection` (name, role ARN, retry) and `DeleteConnection` for AWS
+  connections through a read-only role; `StartScan`, `ListScans` and `GetScan` (with
+  `GetCloudScanParams{Include: "inventory"}`); `CreateMigration`, `ListMigrations`,
+  `GetMigration`, `RenameMigration`, `DeleteMigration`, `UpdateItem` and `ExportTerraform` for
+  migration plans, their price comparison and their Terraform.
+- `Migrate.WaitForConnection` and `Migrate.WaitForScan`, which return a `*CloudFailureError` when
+  the connection or scan fails.
+- `KubernetesCluster.NodeHealth`, `NodeHealthReason`, `ReadyNodes` and `NodesCheckedAt`, and
+  `CreateLoadBalancerRequest.Protocol`.
+- `examples/migrate-from-aws`.
+
+### Changed
+
+- The vendored spec is the current public API. Agent sessions, which answer only AI apps connected
+  through Pantech's MCP server, have no methods yet.
+
 ## v0.1.0 — 2026-10-24
 
 ### Added

@@ -185,3 +185,20 @@ func (p *ListLoadBalancersParams) values() url.Values {
 	}
 	return v
 }
+
+// GetCloudScanParams are the query parameters of get cloud scan. Zero values are left out.
+type GetCloudScanParams struct {
+	// `inventory` returns everything the scan found. One of: inventory.
+	Include string
+}
+
+func (p *GetCloudScanParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Include != "" {
+		v.Set("include", p.Include)
+	}
+	return v
+}

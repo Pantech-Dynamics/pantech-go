@@ -173,6 +173,21 @@ var operationMethods = map[string]any{
 	"listWebhookDeliveries":             (*WebhooksService).ListDeliveries,
 	"getWebhookDelivery":                (*WebhooksService).GetDelivery,
 	"redeliverWebhook":                  (*WebhooksService).Redeliver,
+	"listCloudConnections":              (*MigrateService).ListConnections,
+	"createCloudConnection":             (*MigrateService).CreateConnection,
+	"getCloudConnection":                (*MigrateService).GetConnection,
+	"updateCloudConnection":             (*MigrateService).UpdateConnection,
+	"deleteCloudConnection":             (*MigrateService).DeleteConnection,
+	"listCloudScans":                    (*MigrateService).ListScans,
+	"startCloudScan":                    (*MigrateService).StartScan,
+	"getCloudScan":                      (*MigrateService).GetScan,
+	"listMigrations":                    (*MigrateService).ListMigrations,
+	"createMigration":                   (*MigrateService).CreateMigration,
+	"getMigration":                      (*MigrateService).GetMigration,
+	"renameMigration":                   (*MigrateService).RenameMigration,
+	"deleteMigration":                   (*MigrateService).DeleteMigration,
+	"updateMigrationItem":               (*MigrateService).UpdateItem,
+	"exportMigrationTerraform":          (*MigrateService).ExportTerraform,
 	"getOperation":                      (*OperationsService).Get,
 	"streamOperation":                   (*OperationsService).Stream,
 }
@@ -180,6 +195,24 @@ var operationMethods = map[string]any{
 // aheadOfSpec are operations the SDK already supports that the spec in
 // testdata does not list yet. Remove an entry once the spec has it.
 var aheadOfSpec = map[string]bool{}
+
+// notInSDK are spec operations the SDK deliberately has no method for yet,
+// each with the reason. Agent sessions answer only AI apps connected through
+// Pantech's MCP server; a standard API key gets 403
+// AGENT_SESSIONS_NOT_FOR_API_KEYS. Remove an entry when its method is added.
+var notInSDK = map[string]string{
+	"getInstanceAgent":       "agent sessions: MCP-connected AI apps only",
+	"startAgentSession":      "agent sessions: MCP-connected AI apps only",
+	"listAgentSessions":      "agent sessions: MCP-connected AI apps only",
+	"getAgentSession":        "agent sessions: MCP-connected AI apps only",
+	"messageAgentSession":    "agent sessions: MCP-connected AI apps only",
+	"callAgentTool":          "agent sessions: MCP-connected AI apps only",
+	"getAgentToolCall":       "agent sessions: MCP-connected AI apps only",
+	"listAgentSessionEvents": "agent sessions: MCP-connected AI apps only",
+	"decideAgentApproval":    "agent sessions: MCP-connected AI apps only",
+	"terminateAgentSession":  "agent sessions: MCP-connected AI apps only",
+	"getAgentSessionReport":  "agent sessions: MCP-connected AI apps only",
+}
 
 // specOperation is one operation read from the spec.
 type specOperation struct {
@@ -238,8 +271,19 @@ func TestSpecCoverage(t *testing.T) {
 	inSpec := map[string]bool{}
 	for _, op := range ops {
 		inSpec[op.id] = true
+		if _, skip := notInSDK[op.id]; skip {
+			if _, ok := operationMethods[op.id]; ok {
+				t.Errorf("%s has a method and is listed in notInSDK: remove it from notInSDK", op.id)
+			}
+			continue
+		}
 		if _, ok := operationMethods[op.id]; !ok {
 			t.Errorf("spec operation %s (%s %s) has no SDK method: add one and list it in operationMethods", op.id, op.method, op.path)
+		}
+	}
+	for id := range notInSDK {
+		if !inSpec[id] {
+			t.Errorf("notInSDK lists %s, which is not in the spec: remove it", id)
 		}
 	}
 	for id := range operationMethods {
@@ -247,7 +291,7 @@ func TestSpecCoverage(t *testing.T) {
 			t.Errorf("operationMethods lists %s, which is not in the spec: remove it or add it to aheadOfSpec", id)
 		}
 	}
-	t.Logf("%d operations in the spec, %d mapped", len(ops), len(operationMethods))
+	t.Logf("%d operations in the spec, %d mapped, %d not in the SDK", len(ops), len(operationMethods), len(notInSDK))
 }
 
 // TestSpecRoutes calls every mapped method against a recording server and
