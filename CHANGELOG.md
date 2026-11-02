@@ -5,6 +5,15 @@ adds a line under **Unreleased**. Releasing renames that heading to the version 
 (`## v0.2.0 — 2026-11-02`); a push to main whose newest heading is an untagged version tags it and
 publishes a GitHub release with that section as its notes.
 
+## Unreleased
+
+### Added
+
+- `KubernetesNodePool.FailureCode` and `FailureReason`: why a pool's workers last failed to build
+  (for example `PROVISIONING_CAPACITY_UNAVAILABLE`), while the pool stays `provisioning` or
+  `updating` and is retried. Nil while nothing has failed, and on API versions that do not return
+  them yet.
+
 ## v0.2.0 — 2026-10-28
 
 ### Added

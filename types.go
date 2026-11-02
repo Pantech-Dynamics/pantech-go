@@ -339,10 +339,14 @@ type KubernetesNodePoolTaint struct {
 
 // KubernetesNodePool is the API's kubernetes node pool object.
 type KubernetesNodePool struct {
-	// `provisioning` (workers being built), `ready` (every worker has joined), `updating` (a scale in progress), `deleting`, or `unavailable` (a pool made while node pools were a preview, with no node size: delete it and create it again). One of: provisioning, ready, updating, deleting, unavailable.
+	// `provisioning` (workers being built), `ready` (every worker has joined), `updating` (a scale in progress), `deleting`, or `unavailable` (a pool made while node pools were a preview, with no node size: delete it and create it again). A pool whose workers cannot be built stays `provisioning` or `updating` and is retried; FailureCode and FailureReason say why. One of: provisioning, ready, updating, deleting, unavailable.
 	Status string `json:"status"`
 	// The pool's workers that have joined the cluster.
 	ObservedWorkers int `json:"observed_workers"`
+	// Why the pool's workers last failed to build, e.g. `PROVISIONING_CAPACITY_UNAVAILABLE` (the region has no room for them now) or `PROVISIONING_LIMIT_EXCEEDED`. Nil while nothing has failed; cleared once the pool is `ready` or is scaled.
+	FailureCode *string `json:"failure_code"`
+	// A sentence saying what failed and what to do. Nil when FailureCode is.
+	FailureReason *string `json:"failure_reason"`
 	// e.g. `k8spool_...`.
 	ID                 string                    `json:"id"`
 	ClusterID          string                    `json:"cluster_id"`
