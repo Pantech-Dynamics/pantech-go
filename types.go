@@ -179,6 +179,23 @@ type KubernetesVersionList struct {
 	Data []KubernetesVersion `json:"data"`
 	// Zones where a cluster can have 3 control nodes.
 	HAZoneIDs []string `json:"ha_zone_ids"`
+	// Zones that build Kubernetes nodes only at fixed sizes, one entry per
+	// size, so a zone may appear more than once. There, a cluster, a node
+	// plan resize and a node pool take only a plan of exactly one entry's
+	// VCPU and MemoryMB; anything else is 422 KUBERNETES_PLAN_NOT_IN_ZONE.
+	// A zone not listed takes any plan that meets the version's minimum.
+	FixedNodeSizes []KubernetesFixedNodeSize `json:"fixed_node_sizes"`
+}
+
+// KubernetesFixedNodeSize is one node size a zone builds, from
+// KubernetesVersionList.FixedNodeSizes.
+type KubernetesFixedNodeSize struct {
+	ZoneID string `json:"zone_id"`
+	// The vCPUs of one node size the zone builds; 0 when the zone takes no
+	// plan now.
+	VCPU int `json:"vcpu"`
+	// The memory, in MB, of that node size; 0 when the zone takes no plan now.
+	MemoryMB int `json:"memory_mb"`
 }
 
 // CreateKubernetesClusterRequest is the API's create kubernetes cluster request object.
