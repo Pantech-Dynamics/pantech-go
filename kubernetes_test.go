@@ -39,3 +39,27 @@ func TestListNodePoolsReadsTheBuildFailure(t *testing.T) {
 		t.Fatalf("ready pool = code %v reason %v", *p.FailureCode, *p.FailureReason)
 	}
 }
+
+// A zone that builds nodes only at fixed sizes is listed once per size.
+func TestListKubernetesVersionsReadsTheFixedNodeSizes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/public/v1/kubernetes-versions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"data":[{"id":"k8sv_1","zone_id":"af-abj-2","version":"v1.31.1","status":"available","min_cpu":2,"min_memory_mb":4096}],
+			"ha_zone_ids":[],
+			"fixed_node_sizes":[{"zone_id":"af-abj-2","vcpu":2,"memory_mb":4096},{"zone_id":"af-abj-2","vcpu":8,"memory_mb":18432}]}`)
+	}))
+	defer srv.Close()
+
+	list, err := newTestClientAt(t, srv.URL).Catalog.ListKubernetesVersions(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []KubernetesFixedNodeSize{{ZoneID: "af-abj-2", VCPU: 2, MemoryMB: 4096}, {ZoneID: "af-abj-2", VCPU: 8, MemoryMB: 18432}}
+	if len(list.FixedNodeSizes) != len(want) || list.FixedNodeSizes[0] != want[0] || list.FixedNodeSizes[1] != want[1] {
+		t.Fatalf("fixed node sizes = %+v, want %+v", list.FixedNodeSizes, want)
+	}
+}

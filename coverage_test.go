@@ -212,6 +212,7 @@ var notInSDK = map[string]string{
 	"decideAgentApproval":    "agent sessions: MCP-connected AI apps only",
 	"terminateAgentSession":  "agent sessions: MCP-connected AI apps only",
 	"getAgentSessionReport":  "agent sessions: MCP-connected AI apps only",
+	"setUpInstanceAgent":     "agent sessions: MCP-connected AI apps only",
 }
 
 // specOperation is one operation read from the spec.

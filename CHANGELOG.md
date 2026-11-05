@@ -9,6 +9,10 @@ publishes a GitHub release with that section as its notes.
 
 ### Added
 
+- `KubernetesVersionList.FixedNodeSizes` (`KubernetesFixedNodeSize`): the zones that build
+  Kubernetes nodes only at fixed sizes, one entry per size. There, a cluster, a node plan resize
+  and a node pool take only a plan of one of those sizes.
+
 - `KubernetesNodePool.FailureCode` and `FailureReason`: why a pool's workers last failed to build
   (for example `PROVISIONING_CAPACITY_UNAVAILABLE`), while the pool stays `provisioning` or
   `updating` and is retried. Nil while nothing has failed, and on API versions that do not return
