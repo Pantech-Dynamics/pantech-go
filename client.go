@@ -27,7 +27,7 @@ import (
 )
 
 // Version is this SDK's version. It goes into the default User-Agent.
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 // DefaultBaseURL is the production public API. Every path is relative to it.
 const DefaultBaseURL = "https://api.pantechdynamics.com/public/v1"

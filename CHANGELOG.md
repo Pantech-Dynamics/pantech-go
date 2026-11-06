@@ -5,7 +5,7 @@ adds a line under **Unreleased**. Releasing renames that heading to the version 
 (`## v0.2.0 — 2026-11-02`); a push to main whose newest heading is an untagged version tags it and
 publishes a GitHub release with that section as its notes.
 
-## Unreleased
+## v0.3.0 — 2026-11-06
 
 ### Added
 
