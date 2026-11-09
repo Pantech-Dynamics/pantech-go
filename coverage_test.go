@@ -128,6 +128,8 @@ var operationMethods = map[string]any{
 	"startDatabase":                     (*DatabasesService).Start,
 	"stopDatabase":                      (*DatabasesService).Stop,
 	"resizeDatabaseStorage":             (*DatabasesService).ResizeStorage,
+	"getDatabaseSnapshotSchedule":       (*DatabasesService).GetSnapshotSchedule,
+	"putDatabaseSnapshotSchedule":       (*DatabasesService).PutSnapshotSchedule,
 	"listDatabaseSnapshots":             (*DatabasesService).ListSnapshots,
 	"createDatabaseSnapshot":            (*DatabasesService).CreateSnapshot,
 	"getDatabaseSnapshot":               (*DatabasesService).GetSnapshot,
