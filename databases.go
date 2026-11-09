@@ -132,6 +132,26 @@ func (s *DatabasesService) ResizeStorage(ctx context.Context, databaseID string,
 	return &out, nil
 }
 
+// GetSnapshotSchedule gets a database's snapshot schedule: GET /databases/{database_id}/snapshot-schedule.
+// Scope: read.
+func (s *DatabasesService) GetSnapshotSchedule(ctx context.Context, databaseID string, opts ...RequestOption) (*SnapshotSchedule, error) {
+	var out SnapshotSchedule
+	if err := s.c.Do(ctx, "GET", "/databases/"+url.PathEscape(databaseID)+"/snapshot-schedule", nil, nil, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PutSnapshotSchedule sets a database's snapshot schedule: PUT /databases/{database_id}/snapshot-schedule.
+// Scope: write.
+func (s *DatabasesService) PutSnapshotSchedule(ctx context.Context, databaseID string, req PutSnapshotScheduleRequest, opts ...RequestOption) (*SnapshotSchedule, error) {
+	var out SnapshotSchedule
+	if err := s.c.Do(ctx, "PUT", "/databases/"+url.PathEscape(databaseID)+"/snapshot-schedule", nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ListSnapshots lists a database's snapshots: GET /databases/{database_id}/snapshots.
 // Scope: read.
 func (s *DatabasesService) ListSnapshots(ctx context.Context, databaseID string, params *ListParams, opts ...RequestOption) (*Page[Snapshot], error) {
