@@ -99,8 +99,20 @@ type CreateLoadBalancerRequest struct {
 	PublicPort int `json:"public_port"`
 	// The port on each target.
 	PrivatePort *int `json:"private_port,omitempty"`
-	// The listener protocol. Only `tcp` is offered: HTTP and HTTPS are balanced as `tcp`. One of: tcp.
+	// The listener protocol, `tcp` when left out. `tcp` passes traffic
+	// through unchanged; `https` ends TLS on the load balancer with
+	// CertificateID and speaks plain HTTP to the instances (`appliance`
+	// only: `vpc_native` answers LOAD_BALANCER_TLS_NOT_SUPPORTED). One of: tcp, https.
 	Protocol *string `json:"protocol,omitempty"`
+	// `https` only, and required there: an issued certificate (`cert_…`).
+	// While used, it cannot be deleted or revoked; renewals reach the load
+	// balancer by themselves.
+	CertificateID *string `json:"certificate_id,omitempty"`
+	// `https` only; `modern` when left out. `modern`: TLS 1.2 and 1.3 with
+	// forward-secret AEAD ciphers. `tls13`: TLS 1.3 only. One of: modern, tls13.
+	TLSPolicy *string `json:"tls_policy,omitempty"`
+	// `https` only: also answer port 80, redirecting to HTTPS with a 301.
+	RedirectHTTP *bool `json:"redirect_http,omitempty"`
 	// Source addresses allowed to connect, as IPv4 CIDRs (at most 20).
 	CIDRList *[]string `json:"cidr_list,omitempty"`
 	// Instances to spread traffic across (at most 50).
@@ -115,6 +127,12 @@ type UpdateLoadBalancerRequest struct {
 	Algorithm *string `json:"algorithm,omitempty"`
 	// The whole new set of targets (at most 50).
 	InstanceIDs *[]string `json:"instance_ids,omitempty"`
+	// `https` only: serve this certificate instead.
+	CertificateID *string `json:"certificate_id,omitempty"`
+	// `https` only. One of: modern, tls13.
+	TLSPolicy *string `json:"tls_policy,omitempty"`
+	// `https` only: turn the port 80 redirect on or off.
+	RedirectHTTP *bool `json:"redirect_http,omitempty"`
 }
 
 // LoadBalancerMember is the API's load balancer member object.
@@ -147,6 +165,16 @@ type LoadBalancer struct {
 	Algorithm   string `json:"algorithm"`
 	PublicPort  int    `json:"public_port"`
 	PrivatePort int    `json:"private_port"`
+	// The certificate an `https` listener serves; nil for `tcp`.
+	CertificateID *string `json:"certificate_id"`
+	// The SHA-256 of the leaf the load balancer serves now, to compare with
+	// the certificate's FingerprintSHA256 after a renewal; nil until it
+	// first serves one.
+	CertificateFingerprintSHA256 *string `json:"certificate_fingerprint_sha256"`
+	// `modern` or `tls13` for `https`; nil for `tcp`.
+	TLSPolicy *string `json:"tls_policy"`
+	// Whether port 80 redirects to HTTPS.
+	RedirectHTTP bool `json:"redirect_http"`
 	// Source addresses allowed to connect; empty is anywhere.
 	CIDRList []string             `json:"cidr_list"`
 	Members  []LoadBalancerMember `json:"members"`
@@ -2388,4 +2416,892 @@ type MigrationTerraformFile struct {
 // MigrationTerraform is the API's migration terraform object.
 type MigrationTerraform struct {
 	Files []MigrationTerraformFile `json:"files"`
+}
+
+// DNSZone is the API's DNS zone object.
+// A hosted zone on Pantech DNS, on Pantech's own name servers. It is created
+// on them once its delegation is proven; record changes then reach them
+// within about a minute.
+type DNSZone struct {
+	// `dnsz_…`.
+	ID string `json:"id"`
+	// The zone's name, lower case and punycode, such as `example.com`.
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// One of: pending, awaiting_delegation, active, suspended, deleting, deleted, failed.
+	Status string `json:"status"`
+	// Set when `status` is `failed`; `provider_limit` also covers no free
+	// name-server pair. One of: delegation_timeout, provider_rejected, provider_limit.
+	FailureCode *string `json:"failure_code"`
+	// The two name servers to set at the domain's registrar, such as
+	// `ana.ns.pantechdynamics.com`. Empty while `pending`.
+	NameServers []string `json:"name_servers"`
+	// The Pantech domain (`dom_…`) that delegates to this zone, if any.
+	DomainID    *string `json:"domain_id"`
+	RecordCount int     `json:"record_count"`
+	// While the zone awaits delegation, when it is removed if the registrar
+	// still does not delegate to its name servers; nil otherwise.
+	DelegationDeadlineAt *time.Time `json:"delegation_deadline_at"`
+	LastCheckedAt        *time.Time `json:"last_checked_at"`
+	ActivatedAt          *time.Time `json:"activated_at"`
+	SuspendedReason      *string    `json:"suspended_reason"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	Version              int        `json:"version"`
+}
+
+// CreateDNSZoneRequest is the API's create DNS zone request object.
+type CreateDNSZoneRequest struct {
+	// A registrable domain or a subdomain of one, such as `example.com`.
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+}
+
+// UpdateDNSZoneRequest is the API's update DNS zone request object.
+type UpdateDNSZoneRequest struct {
+	// The new description; empty clears it.
+	Description string `json:"description"`
+}
+
+// DNSRecord is the API's DNS record set object: one name and type, its TTL
+// and its values.
+type DNSRecord struct {
+	// `dnsr_…`.
+	ID     string `json:"id"`
+	ZoneID string `json:"zone_id"`
+	// Relative to the zone: `@` for the apex, `www`, `*.dev`, `_dmarc`.
+	Name string `json:"name"`
+	FQDN string `json:"fqdn"`
+	// One of: A, AAAA, CNAME, MX, TXT, SRV, CAA, NS, PTR, SOA.
+	Type string `json:"type"`
+	// Seconds, 60 to 86400.
+	TTL int `json:"ttl"`
+	// Host names are returned with a trailing dot.
+	Values       []string `json:"values"`
+	AllowPrivate bool     `json:"allow_private"`
+	Comment      string   `json:"comment"`
+	// The apex SOA and NS: listed, never changed.
+	Managed bool `json:"managed"`
+	// One of: pending, active, deleting, failed.
+	Status string `json:"status"`
+	// Set when `status` is `failed`, such as `invalid_change`.
+	FailureCode *string   `json:"failure_code"`
+	Version     int       `json:"version"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// CreateDNSRecordRequest is the API's create DNS record request object.
+type CreateDNSRecordRequest struct {
+	// Relative to the zone (`@`, `www`); a name ending in the zone is accepted too.
+	Name string `json:"name"`
+	// One of: A, AAAA, CNAME, MX, TXT, SRV, CAA, NS, PTR.
+	Type string `json:"type"`
+	// Seconds, 60 to 86400; 300 when left out.
+	TTL *int `json:"ttl,omitempty"`
+	// 1 to 100 values in the type's format, such as `10 mail.example.com` for MX.
+	Values []string `json:"values"`
+	// Allow private and carrier-grade NAT addresses, for split-horizon use.
+	AllowPrivate *bool   `json:"allow_private,omitempty"`
+	Comment      *string `json:"comment,omitempty"`
+}
+
+// UpdateDNSRecordRequest is the API's update DNS record request object.
+// Fields left nil are kept.
+type UpdateDNSRecordRequest struct {
+	TTL          *int     `json:"ttl,omitempty"`
+	Values       []string `json:"values,omitempty"`
+	AllowPrivate *bool    `json:"allow_private,omitempty"`
+	Comment      *string  `json:"comment,omitempty"`
+}
+
+// DNSRecordInput is a record set in a batch change. An update may leave out
+// Name and Type, which are the record's identity.
+type DNSRecordInput struct {
+	Name         string   `json:"name,omitempty"`
+	Type         string   `json:"type,omitempty"`
+	TTL          *int     `json:"ttl,omitempty"`
+	Values       []string `json:"values,omitempty"`
+	AllowPrivate *bool    `json:"allow_private,omitempty"`
+	Comment      *string  `json:"comment,omitempty"`
+}
+
+// DNSRecordChange is one change of a batch.
+type DNSRecordChange struct {
+	// One of: create, update, delete.
+	Action string `json:"action"`
+	// The record to update or delete (`dnsr_…`).
+	RecordID string `json:"record_id,omitempty"`
+	// When set, the change fails with VERSION_CONFLICT unless the record is at this version.
+	Version *int `json:"version,omitempty"`
+	// Required to create or update.
+	Record *DNSRecordInput `json:"record,omitempty"`
+}
+
+// DNSRecordBatchRequest is the API's DNS record batch request object.
+// It is applied all or nothing.
+type DNSRecordBatchRequest struct {
+	// 1 to 1000 changes.
+	Changes []DNSRecordChange `json:"changes"`
+}
+
+// ImportDNSZoneRequest is the API's import DNS zone request object.
+type ImportDNSZoneRequest struct {
+	// A BIND zone file.
+	ZoneFile string `json:"zone_file"`
+	// Also delete the records the file does not have (the apex SOA and NS are kept).
+	Replace *bool `json:"replace,omitempty"`
+}
+
+// TLDOffer is the API's TLD offer object: what a TLD sells for, per year,
+// before VAT. Registering for n years costs RegisterMinor + RenewMinor × (n-1); a
+// transfer costs TransferMinor + RenewMinor × (n-1).
+type TLDOffer struct {
+	// Without the dot, such as `com`.
+	TLD string `json:"tld"`
+	// One of: NGN, USD.
+	Currency      string `json:"currency"`
+	RegisterMinor int64  `json:"register_minor"`
+	RenewMinor    int64  `json:"renew_minor"`
+	TransferMinor int64  `json:"transfer_minor"`
+	Featured      bool   `json:"featured"`
+	// The TLD's registry hides every registrant's contact details itself
+	// (.ng and its second levels): privacy is always on and cannot be
+	// turned off (422 on `privacy`, code PRIVACY_ALWAYS_ON).
+	PrivacyAlwaysOn bool `json:"privacy_always_on"`
+}
+
+// RegisterPrice is what registering for years costs, in minor units.
+func (o TLDOffer) RegisterPrice(years int) int64 {
+	return o.RegisterMinor + o.RenewMinor*int64(max(years, 1)-1)
+}
+
+// TransferPrice is what a transfer that adds years costs, in minor units.
+func (o TLDOffer) TransferPrice(years int) int64 {
+	return o.TransferMinor + o.RenewMinor*int64(max(years, 1)-1)
+}
+
+// RenewPrice is what renewing for years costs, in minor units.
+func (o TLDOffer) RenewPrice(years int) int64 {
+	return o.RenewMinor * int64(max(years, 1))
+}
+
+// DomainSearchResult is the API's domain search result object.
+type DomainSearchResult struct {
+	Name string `json:"name"`
+	TLD  string `json:"tld"`
+	// `unknown` means it could not be checked now: try again. One of: available, unavailable, unknown.
+	Status string `json:"status"`
+	// Nil when the TLD is not sold.
+	Price *TLDOffer `json:"price"`
+}
+
+// DomainTransferCheck is the API's domain transfer check object.
+type DomainTransferCheck struct {
+	Name         string `json:"name"`
+	Transferable bool   `json:"transferable"`
+	// A stable code when not transferable.
+	Reason *string `json:"reason"`
+	// Nil when the TLD is not sold.
+	Price *TLDOffer `json:"price"`
+}
+
+// Domain is the API's domain object: a domain registered or transferred in
+// through Pantech.
+type Domain struct {
+	// `dom_…`.
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	TLD  string `json:"tld"`
+	// One of: pending, registering, transferring, active, expired, failed, transferred_out, suspended.
+	Status      string  `json:"status"`
+	FailureCode *string `json:"failure_code"`
+	// Renewed by Pantech from your credit 30 days before expiry.
+	AutoRenew    bool `json:"auto_renew"`
+	TransferLock bool `json:"transfer_lock"`
+	Privacy      bool `json:"privacy"`
+	// One of: pantech, custom.
+	NameServerMode string   `json:"name_server_mode"`
+	NameServers    []string `json:"name_servers"`
+	// The Pantech DNS zone it delegates to, in `pantech` mode.
+	ZoneID       *string    `json:"zone_id"`
+	RegisteredAt *time.Time `json:"registered_at"`
+	ExpiresAt    *time.Time `json:"expires_at"`
+	// False until the registrant clicks the registry's verification email; an
+	// unverified registrant is suspended by the registry after 15 days.
+	ContactVerified bool `json:"contact_verified"`
+	// True while lock, privacy, name server or contact changes are being applied.
+	SettingsPending bool `json:"settings_pending"`
+	// True while a requested auth code is being fetched.
+	AuthCodePending bool      `json:"auth_code_pending"`
+	SuspendedReason *string   `json:"suspended_reason"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	Version         int       `json:"version"`
+}
+
+// DomainOrder is the API's domain order object: one paid action on a domain.
+// The amount is taken from credit before the registrar is called; a failed
+// order returns it (Refunded). When credit does not cover an order (one you
+// placed, or an automatic renewal), it waits in `awaiting_payment` for up to
+// an hour. In US dollars Pantech charges the saved card the difference
+// (PaymentURL is set only when the bank asks the customer to confirm); in
+// naira the customer adds credit. The order goes on as soon as the money
+// arrives; Domains.RetryOrderPayment tries again at once and waits another
+// hour. Unpaid in time, it fails insufficient_credit and nothing is charged.
+type DomainOrder struct {
+	// `dor_…`.
+	ID         string `json:"id"`
+	DomainID   string `json:"domain_id"`
+	DomainName string `json:"domain_name"`
+	// One of: register, renew, transfer.
+	Kind        string `json:"kind"`
+	Years       int    `json:"years"`
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
+	// One of: pending, awaiting_payment, paid, submitted, succeeded, failed.
+	// A pending order whose credit falls short becomes awaiting_payment (a
+	// saved-card charge in US dollars, a deposit in naira), then paid, or
+	// failed with insufficient_credit.
+	Status string `json:"status"`
+	// While `awaiting_payment`: the page where the bank asks the customer to
+	// confirm the saved-card payment of the difference (US dollars only),
+	// when it does. Nil when no confirmation is needed, while a naira order
+	// waits for credit, and in every other status.
+	PaymentURL *string `json:"payment_url"`
+	// While `awaiting_payment`: when the order fails insufficient_credit.
+	PaymentExpiresAt *time.Time `json:"payment_expires_at"`
+	// One of: insufficient_credit, domain_unavailable, price_changed, registrar_rejected, transfer_rejected, invalid_auth_code, contact_rejected, tld_not_sold, billing_unavailable, domain_expired.
+	FailureCode *string    `json:"failure_code"`
+	Refunded    bool       `json:"refunded"`
+	CreatedAt   time.Time  `json:"created_at"`
+	CompletedAt *time.Time `json:"completed_at"`
+}
+
+// DomainOrderAccepted is what a registration, transfer or renewal answers
+// with `202`: the domain and the order paying for it. Follow the order with
+// Domains.WaitForOrder.
+type DomainOrderAccepted struct {
+	Domain Domain      `json:"domain"`
+	Order  DomainOrder `json:"order"`
+}
+
+// DomainContact is the API's contact object: the domain's registrant. It is
+// personal data: read it only to show it to its owner, and never log it.
+type DomainContact struct {
+	// One of: person, company.
+	Type      string `json:"type"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	// Required when Type is `company`.
+	OrganizationName string `json:"organization_name,omitempty"`
+	Email            string `json:"email"`
+	// `+CC.NUMBER`, such as `+234.8012345678`.
+	Phone        string `json:"phone"`
+	AddressLine1 string `json:"address_line1"`
+	AddressLine2 string `json:"address_line2,omitempty"`
+	City         string `json:"city"`
+	State        string `json:"state,omitempty"`
+	// ISO 3166-1 alpha-2, such as `NG`.
+	CountryCode string `json:"country_code"`
+	PostalCode  string `json:"postal_code,omitempty"`
+}
+
+// String hides the contact, so printing a struct that holds one does not
+// leak it into logs.
+func (DomainContact) String() string { return "pantech.DomainContact{…}" }
+
+// GoString hides the contact from %#v too.
+func (DomainContact) GoString() string { return "pantech.DomainContact{…}" }
+
+// RegisterDomainRequest is the API's register domain request object.
+type RegisterDomainRequest struct {
+	Name string `json:"name"`
+	// 1 to 10; 1 when left out.
+	Years   *int          `json:"years,omitempty"`
+	Contact DomainContact `json:"contact"`
+	// On when left out.
+	AutoRenew *bool `json:"auto_renew,omitempty"`
+	// On when left out.
+	Privacy *bool `json:"privacy,omitempty"`
+	// Must be true: the registrant agreement and registrant rights were shown and accepted.
+	AcceptTerms bool `json:"accept_terms"`
+}
+
+// TransferDomainRequest is the API's transfer domain request object.
+type TransferDomainRequest struct {
+	Name string `json:"name"`
+	// From the current registrar.
+	AuthCode string `json:"auth_code"`
+	// 1 to 10; a transfer adds one year when left out.
+	Years       *int          `json:"years,omitempty"`
+	Contact     DomainContact `json:"contact"`
+	AutoRenew   *bool         `json:"auto_renew,omitempty"`
+	Privacy     *bool         `json:"privacy,omitempty"`
+	AcceptTerms bool          `json:"accept_terms"`
+}
+
+// String hides the auth code and the contact.
+func (r TransferDomainRequest) String() string {
+	return "pantech.TransferDomainRequest{Name: " + r.Name + ", AuthCode: …}"
+}
+
+// GoString hides the auth code and the contact from %#v too.
+func (r TransferDomainRequest) GoString() string { return r.String() }
+
+// UpdateDomainRequest is the API's update domain request object. Fields left
+// nil are kept.
+type UpdateDomainRequest struct {
+	AutoRenew    *bool `json:"auto_renew,omitempty"`
+	TransferLock *bool `json:"transfer_lock,omitempty"`
+	Privacy      *bool `json:"privacy,omitempty"`
+}
+
+// SetDomainNameServersRequest is the API's set domain name servers request
+// object: Pantech DNS (with the zone of the same name, made if missing), or
+// up to 6 custom name servers.
+type SetDomainNameServersRequest struct {
+	UsePantechDNS bool `json:"use_pantech_dns"`
+	// With UsePantechDNS, a zone of the domain's name (`dnsz_…`).
+	ZoneID *string `json:"zone_id,omitempty"`
+	// Without UsePantechDNS, 2 to 6 host names.
+	NameServers []string `json:"name_servers,omitempty"`
+}
+
+// UpdateDomainContactRequest is the API's update domain contact request object.
+type UpdateDomainContactRequest struct {
+	Contact DomainContact `json:"contact"`
+}
+
+// RenewDomainRequest is the API's renew domain request object.
+type RenewDomainRequest struct {
+	// 1 to 10; 1 when left out.
+	Years *int `json:"years,omitempty"`
+}
+
+// DomainAuthCode is the API's domain auth code object: the code that moves
+// the domain to another registrar, or Status `pending` while it is fetched.
+type DomainAuthCode struct {
+	// Empty while pending. Show it once; anyone holding it can move the domain away.
+	AuthCode string `json:"auth_code,omitempty"`
+	// When the code stops being shown.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	// `pending` while the code is being fetched.
+	Status string `json:"status,omitempty"`
+}
+
+// Pending reports whether the code is still being fetched.
+func (a *DomainAuthCode) Pending() bool { return a.AuthCode == "" }
+
+// String hides the code.
+func (a DomainAuthCode) String() string { return "pantech.DomainAuthCode{…}" }
+
+// GoString hides the code from %#v too.
+func (a DomainAuthCode) GoString() string { return a.String() }
+
+// RegistryNamespace is the API's registry namespace object: the
+// organization's one namespace on the Pantech container registry. Images are
+// <RegistryHost>/<Name>/<repository>:<tag>.
+type RegistryNamespace struct {
+	Name string `json:"name"`
+	// Such as `registry.pantechdynamics.com`.
+	RegistryHost string `json:"registry_host"`
+	// Whether a push to a repository that does not exist creates it.
+	CreateOnPush      bool      `json:"create_on_push"`
+	RepositoryCount   int       `json:"repository_count"`
+	StorageBytes      int64     `json:"storage_bytes"`
+	StorageLimitBytes int64     `json:"storage_limit_bytes"`
+	RepositoryLimit   int       `json:"repository_limit"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	Version           int       `json:"version"`
+}
+
+// SetRegistryNamespaceRequest is the API's set registry namespace request object.
+type SetRegistryNamespaceRequest struct {
+	// 3 to 30 lower-case letters, digits and single hyphens, starting with a
+	// letter. It cannot change once a repository exists.
+	Name string `json:"name"`
+	// On when left out.
+	CreateOnPush *bool `json:"create_on_push,omitempty"`
+}
+
+// RegistryRetention is a repository's retention policy. A nil field is no
+// rule. Sent in a request, it replaces the whole policy.
+type RegistryRetention struct {
+	// Keep the newest N tags, 1 to 1000.
+	KeepLast *int `json:"keep_last"`
+	// Delete untagged manifests older than this many days, 1 to 365.
+	UntaggedAfterDays *int `json:"untagged_after_days"`
+	// Tags matching this glob (such as `v*`), at most 128 characters, are never removed.
+	KeepPattern *string `json:"keep_pattern"`
+}
+
+// RegistryRepository is the API's registry repository object.
+type RegistryRepository struct {
+	// `crr_…`.
+	ID        string `json:"id"`
+	Namespace string `json:"namespace"`
+	// Such as `api/server`.
+	Name string `json:"name"`
+	// What to push and pull: `registry.pantechdynamics.com/acme/api/server`.
+	FullName    string `json:"full_name"`
+	Description string `json:"description"`
+	// One of: private, public.
+	Visibility    string             `json:"visibility"`
+	ImmutableTags bool               `json:"immutable_tags"`
+	Retention     *RegistryRetention `json:"retention"`
+	TagCount      int                `json:"tag_count"`
+	StorageBytes  int64              `json:"storage_bytes"`
+	LastPushedAt  *time.Time         `json:"last_pushed_at"`
+	// One of: active, deleting, suspended.
+	Status          string    `json:"status"`
+	SuspendedReason *string   `json:"suspended_reason"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	Version         int       `json:"version"`
+}
+
+// CreateRegistryRepositoryRequest is the API's create registry repository request object.
+type CreateRegistryRepositoryRequest struct {
+	// Lower-case path components such as `api/server`, at most 255 characters.
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	// `private` when left out. One of: private, public.
+	Visibility    *string            `json:"visibility,omitempty"`
+	ImmutableTags *bool              `json:"immutable_tags,omitempty"`
+	Retention     *RegistryRetention `json:"retention,omitempty"`
+}
+
+// UpdateRegistryRepositoryRequest is the API's update registry repository
+// request object. Fields left nil are kept; Retention replaces the whole policy.
+type UpdateRegistryRepositoryRequest struct {
+	Description *string `json:"description,omitempty"`
+	// One of: private, public.
+	Visibility    *string            `json:"visibility,omitempty"`
+	ImmutableTags *bool              `json:"immutable_tags,omitempty"`
+	Retention     *RegistryRetention `json:"retention,omitempty"`
+}
+
+// RegistryTag is the API's registry tag object.
+type RegistryTag struct {
+	Name string `json:"name"`
+	// Such as `sha256:9f86…`.
+	Digest    string `json:"digest"`
+	MediaType string `json:"media_type"`
+	SizeBytes int64  `json:"size_bytes"`
+	// Such as `linux/amd64`.
+	Platforms    []string   `json:"platforms"`
+	PushedAt     time.Time  `json:"pushed_at"`
+	LastPulledAt *time.Time `json:"last_pulled_at"`
+	Immutable    bool       `json:"immutable"`
+}
+
+// RegistryToken is the API's registry token object: a credential for the
+// registry only, never for the API.
+type RegistryToken struct {
+	// `prt_…`.
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// `push` includes pull. One of: pull, push.
+	Permission string `json:"permission"`
+	// Empty means every repository in the namespace.
+	Repositories []string   `json:"repositories"`
+	ExpiresAt    *time.Time `json:"expires_at"`
+	LastUsedAt   *time.Time `json:"last_used_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	RevokedAt    *time.Time `json:"revoked_at"`
+	// Set only in the answer to CreateToken, and shown nowhere again: the
+	// password for `docker login`. It is never printed by fmt.
+	Secret string `json:"secret,omitempty"`
+}
+
+// String describes the token without its secret.
+func (t RegistryToken) String() string {
+	return "pantech.RegistryToken{ID: " + t.ID + ", Name: " + t.Name + ", Permission: " + t.Permission + "}"
+}
+
+// GoString describes the token without its secret for %#v too.
+func (t RegistryToken) GoString() string { return t.String() }
+
+// CreateRegistryTokenRequest is the API's create registry token request object.
+type CreateRegistryTokenRequest struct {
+	Name string `json:"name"`
+	// One of: pull, push.
+	Permission string `json:"permission"`
+	// Repository names (such as `api/server`); every repository when left out.
+	Repositories []string `json:"repositories,omitempty"`
+	// Never expires when left out.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// IAMAction is the API's IAM action object: one entry of the action catalogue.
+type IAMAction struct {
+	// `<service>:<verb>`, such as `instances:Stop`.
+	Action        string   `json:"action"`
+	Service       string   `json:"service"`
+	Description   string   `json:"description"`
+	ResourceTypes []string `json:"resource_types"`
+	// Whether the organization's `read` member baseline allows it.
+	Read bool `json:"read"`
+}
+
+// IAMSettings is the API's access setting object.
+type IAMSettings struct {
+	// What members may do with no policy: `read` (the default) or `none`. One of: read, none.
+	MemberBaseline string `json:"member_baseline"`
+	Version        int    `json:"version"`
+	// Nil until the setting is first changed.
+	UpdatedAt *time.Time `json:"updated_at"`
+}
+
+// UpdateIAMSettingsRequest is the API's update access setting request object.
+type UpdateIAMSettingsRequest struct {
+	// One of: read, none.
+	MemberBaseline string `json:"member_baseline"`
+}
+
+// IAMTeam is the API's team object: a named group of members.
+type IAMTeam struct {
+	// `team_…`.
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	MemberCount int    `json:"member_count"`
+	// The policies attached to the team.
+	PolicyIDs []string  `json:"policy_ids"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Version   int       `json:"version"`
+}
+
+// CreateIAMTeamRequest is the API's create team request object.
+type CreateIAMTeamRequest struct {
+	// 1 to 64 characters, unique in the organization.
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+}
+
+// UpdateIAMTeamRequest is the API's update team request object. Fields left
+// nil are kept.
+type UpdateIAMTeamRequest struct {
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// IAMTeamMember is the API's team member object.
+type IAMTeamMember struct {
+	// `usr_…`.
+	UserID string `json:"user_id"`
+	Email  string `json:"email"`
+	Name   string `json:"name"`
+	// The member's organization role. One of: owner, admin, member.
+	Role    string    `json:"role"`
+	AddedAt time.Time `json:"added_at"`
+}
+
+// PolicyConditions must all hold for a statement to apply. A field left
+// empty is no condition.
+type PolicyConditions struct {
+	// The request's client address is in one of these CIDRs (up to 20).
+	SourceIP []string `json:"source_ip,omitempty"`
+	// True: applies only when the session authenticated with MFA. False:
+	// applies only when the request lacks MFA (API keys never carry it, so a
+	// deny with false blocks keys too). Nil: either way.
+	MFA *bool `json:"mfa,omitempty"`
+}
+
+// PolicyStatement is one statement of a policy. Build one with Allow or Deny.
+type PolicyStatement struct {
+	// Optional, unique within the policy, 1 to 64 of [A-Za-z0-9_-].
+	Sid string `json:"sid,omitempty"`
+	// One of: allow, deny.
+	Effect string `json:"effect"`
+	// 1 to 50 actions from Client.IAM.ListActions, with `*` wildcards:
+	// `instances:Stop`, `instances:*`, `*:Read`, `*`.
+	Actions []string `json:"actions"`
+	// 1 to 50 of `*`, a resource id (`vm_…`), or `name:<glob>` matched
+	// against the resource's name, such as `name:staging-*`.
+	Resources  []string          `json:"resources"`
+	Conditions *PolicyConditions `json:"conditions,omitempty"`
+}
+
+// IAMPolicy is the API's policy object.
+type IAMPolicy struct {
+	// `pol_…`; Pantech's managed policies are `pol_pantech_<name>`.
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// True for Pantech's policies, which cannot be changed.
+	Managed         bool              `json:"managed"`
+	Statements      []PolicyStatement `json:"statements"`
+	AttachmentCount int               `json:"attachment_count"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+	Version         int               `json:"version"`
+}
+
+// CreateIAMPolicyRequest is the API's create policy request object.
+type CreateIAMPolicyRequest struct {
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
+	// 1 to 20 statements.
+	Statements []PolicyStatement `json:"statements"`
+}
+
+// UpdateIAMPolicyRequest is the API's update policy request object. It
+// replaces the whole policy: name, description and statements.
+type UpdateIAMPolicyRequest struct {
+	Name        string            `json:"name"`
+	Description *string           `json:"description,omitempty"`
+	Statements  []PolicyStatement `json:"statements"`
+}
+
+// IAMAttachment is the API's attachment object: a policy attached to a
+// member or a team.
+type IAMAttachment struct {
+	PolicyID string `json:"policy_id"`
+	// One of: member, team.
+	PrincipalType string `json:"principal_type"`
+	// `usr_…` or `team_…`.
+	PrincipalID string    `json:"principal_id"`
+	AttachedAt  time.Time `json:"attached_at"`
+}
+
+// AttachIAMPolicyRequest is the API's attach policy request object.
+type AttachIAMPolicyRequest struct {
+	// One of: member, team.
+	PrincipalType string `json:"principal_type"`
+	PrincipalID   string `json:"principal_id"`
+}
+
+// IAMEffectivePolicy is one policy that applies to a member, and the team
+// that brought it (nil when attached to the member directly).
+type IAMEffectivePolicy struct {
+	PolicyID string  `json:"policy_id"`
+	TeamID   *string `json:"team_id"`
+}
+
+// IAMEffectiveAccess is the API's effective access object: what applies to
+// a member.
+type IAMEffectiveAccess struct {
+	UserID string `json:"user_id"`
+	// One of: owner, admin, member.
+	Role           string               `json:"role"`
+	Teams          []string             `json:"teams"`
+	Policies       []IAMEffectivePolicy `json:"policies"`
+	MemberBaseline string               `json:"member_baseline"`
+}
+
+// SimulateIAMAccessRequest is the API's simulation request object.
+type SimulateIAMAccessRequest struct {
+	UserID string `json:"user_id"`
+	// Such as `instances:Delete`.
+	Action string `json:"action"`
+	// A resource id such as `vm_…`.
+	Resource *string `json:"resource,omitempty"`
+	// The resource's name, for `name:` globs.
+	ResourceName *string `json:"resource_name,omitempty"`
+	// The client address, for `source_ip` conditions.
+	SourceIP *string `json:"source_ip,omitempty"`
+	// Whether the session used MFA.
+	MFA *bool `json:"mfa,omitempty"`
+}
+
+// IAMSimulation is the API's simulation object: the decision the evaluator
+// would make.
+type IAMSimulation struct {
+	Allowed bool `json:"allowed"`
+	// One of: owner, admin, allow, baseline_read, explicit_deny, implicit_deny.
+	Decision string `json:"decision"`
+	// The policy and statement that decided, for allow and explicit_deny.
+	PolicyID *string `json:"policy_id"`
+	Sid      *string `json:"sid"`
+}
+
+// IAMMember is the API's organization member object, as IAM sees it.
+type IAMMember struct {
+	// `usr_…`.
+	UserID string `json:"user_id"`
+	Email  string `json:"email"`
+	Name   string `json:"name"`
+	// One of: owner, admin, member.
+	Role        string   `json:"role"`
+	TeamIDs     []string `json:"team_ids"`
+	PolicyCount int      `json:"policy_count"`
+}
+
+// CertificateValidation is the API's certificate validation object: how one
+// name is proved for the CA.
+type CertificateValidation struct {
+	Name string `json:"name"`
+	// `pantech_dns`: the name is in an active Pantech DNS zone and Pantech
+	// writes the challenge itself. `cname`: add the CNAME CNAMEName →
+	// CNAMETarget at your DNS host once. One of: pantech_dns, cname.
+	Method      string  `json:"method"`
+	ZoneID      *string `json:"zone_id"`
+	CNAMEName   *string `json:"cname_name"`
+	CNAMETarget *string `json:"cname_target"`
+	// One of: pending, ready, valid, invalid.
+	Status string `json:"status"`
+}
+
+// CertificateUsage is a Pantech resource that uses a certificate.
+type CertificateUsage struct {
+	// Such as `load_balancer`.
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+// Certificate is the API's certificate object.
+type Certificate struct {
+	// `cert_…`.
+	ID string `json:"id"`
+	// One of: public, imported.
+	Kind  string   `json:"kind"`
+	Names []string `json:"names"`
+	// The first name, when it is at most 64 characters.
+	CommonName  *string `json:"common_name"`
+	Description string  `json:"description"`
+	// One of: ecdsa-p256, ecdsa-p384, rsa-2048, rsa-3072, rsa-4096.
+	KeyType string `json:"key_type"`
+	// Set at creation, never changed: whether Export may hand out the key.
+	Exportable bool `json:"exportable"`
+	// One of: pending_validation, issuing, issued, renewing, expired, revoked, failed.
+	Status string `json:"status"`
+	// While pending_validation, issuing or renewing. One of: awaiting_cname,
+	// awaiting_dns, awaiting_ca, rate_limited, ca_unavailable, validation_failed.
+	PendingReason *string `json:"pending_reason"`
+	// When failed. One of: validation_timeout, validation_failed,
+	// caa_forbidden, rejected_identifier, rate_limited, ca_unavailable,
+	// dns_record_limit, ca_rejected.
+	FailureCode *string `json:"failure_code"`
+	// One per name; empty for an imported certificate.
+	Validations []CertificateValidation `json:"validations"`
+	// While waiting for CNAMEs on a first issue, when the request fails.
+	ValidationDeadlineAt *time.Time `json:"validation_deadline_at"`
+	Issuer               *string    `json:"issuer"`
+	// Hexadecimal.
+	SerialNumber *string `json:"serial_number"`
+	// SHA-256 of the leaf's DER, lower-case hex.
+	FingerprintSHA256 *string    `json:"fingerprint_sha256"`
+	NotBefore         *time.Time `json:"not_before"`
+	NotAfter          *time.Time `json:"not_after"`
+	IssuedAt          *time.Time `json:"issued_at"`
+	// Renewal starts at this time, 30 days before NotAfter.
+	RenewAfter *time.Time `json:"renew_after"`
+	// One of: scheduled, in_progress, failing. Nil for imported certificates.
+	RenewalStatus *string `json:"renewal_status"`
+	// A certificate in use cannot be revoked or deleted.
+	InUseBy           []CertificateUsage `json:"in_use_by"`
+	RevocationPending bool               `json:"revocation_pending"`
+	RevokedAt         *time.Time         `json:"revoked_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	Version           int                `json:"version"`
+}
+
+// RequestCertificateRequest is the API's request certificate request object.
+type RequestCertificateRequest struct {
+	// 1 to 100 DNS names; wildcards as `*.example.com`.
+	Names []string `json:"names"`
+	// `ecdsa-p256` when left out. One of: ecdsa-p256, rsa-2048.
+	KeyType *string `json:"key_type,omitempty"`
+	// Whether the private key may be exported. Fixed at creation.
+	Exportable  *bool   `json:"exportable,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+// ImportCertificateRequest is the API's import certificate request object.
+// PrivateKeyPEM never prints with fmt.
+type ImportCertificateRequest struct {
+	CertificatePEM string `json:"certificate_pem"`
+	// The intermediates, leaf excluded.
+	ChainPEM *string `json:"chain_pem,omitempty"`
+	// Unencrypted PKCS #1, PKCS #8 or SEC 1.
+	PrivateKeyPEM string  `json:"private_key_pem"`
+	Exportable    *bool   `json:"exportable,omitempty"`
+	Description   *string `json:"description,omitempty"`
+}
+
+// String hides the private key.
+func (r ImportCertificateRequest) String() string { return "pantech.ImportCertificateRequest{…}" }
+
+// GoString hides the private key from %#v too.
+func (r ImportCertificateRequest) GoString() string { return r.String() }
+
+// ReimportCertificateRequest is the API's reimport certificate request
+// object: the same names, a new certificate and key. PrivateKeyPEM never
+// prints with fmt.
+type ReimportCertificateRequest struct {
+	CertificatePEM string  `json:"certificate_pem"`
+	ChainPEM       *string `json:"chain_pem,omitempty"`
+	PrivateKeyPEM  string  `json:"private_key_pem"`
+}
+
+// String hides the private key.
+func (r ReimportCertificateRequest) String() string { return "pantech.ReimportCertificateRequest{…}" }
+
+// GoString hides the private key from %#v too.
+func (r ReimportCertificateRequest) GoString() string { return r.String() }
+
+// UpdateCertificateRequest is the API's update certificate request object.
+type UpdateCertificateRequest struct {
+	Description string `json:"description"`
+}
+
+// RevokeCertificateRequest is the API's revoke certificate request object.
+type RevokeCertificateRequest struct {
+	// `unspecified` when left out. One of: unspecified, key_compromise.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// ExportedCertificate is the API's exported certificate object. It holds the
+// private key: write it somewhere only its users can read, and never log it.
+// PrivateKeyPEM never prints with fmt.
+type ExportedCertificate struct {
+	CertificatePEM string `json:"certificate_pem"`
+	// The intermediates, leaf excluded; may be empty for an imported certificate.
+	ChainPEM string `json:"chain_pem"`
+	// PKCS #8 for certificates Pantech issued; as imported otherwise.
+	PrivateKeyPEM string    `json:"private_key_pem"`
+	NotAfter      time.Time `json:"not_after"`
+}
+
+// String hides the private key.
+func (e ExportedCertificate) String() string {
+	return "pantech.ExportedCertificate{NotAfter: " + e.NotAfter.Format(time.RFC3339) + ", PrivateKeyPEM: …}"
+}
+
+// GoString hides the private key from %#v too.
+func (e ExportedCertificate) GoString() string { return e.String() }
+
+// FullChainPEM is the leaf followed by the intermediates, the file most
+// servers take as their certificate.
+func (e *ExportedCertificate) FullChainPEM() string {
+	if e.ChainPEM == "" {
+		return e.CertificatePEM
+	}
+	leaf := e.CertificatePEM
+	if leaf != "" && leaf[len(leaf)-1] != '\n' {
+		leaf += "\n"
+	}
+	return leaf + e.ChainPEM
+}
+
+// DNSZoneQuote is the API's DNS zone quote object: what hosted zones cost.
+// The first FreeZones live zones are free; each further one costs
+// MonthlyPerZoneMinor a month, billed by the hour.
+type DNSZoneQuote struct {
+	FreeZones int `json:"free_zones"`
+	// Zones from `awaiting_delegation` until deleted.
+	LiveZones     int `json:"live_zones"`
+	BillableZones int `json:"billable_zones"`
+	// One of: NGN, USD.
+	Currency            string `json:"currency"`
+	MonthlyPerZoneMinor int64  `json:"monthly_per_zone_minor"`
+	// BillableZones × MonthlyPerZoneMinor.
+	MonthlyEstimateMinor int64 `json:"monthly_estimate_minor"`
+	// 730.
+	NominalMonthHours int `json:"nominal_month_hours"`
 }

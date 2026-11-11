@@ -188,13 +188,91 @@ var operationMethods = map[string]any{
 	"deleteMigration":                   (*MigrateService).DeleteMigration,
 	"updateMigrationItem":               (*MigrateService).UpdateItem,
 	"exportMigrationTerraform":          (*MigrateService).ExportTerraform,
+	"listDNSZones":                      (*DNSService).ListZones,
+	"createDNSZone":                     (*DNSService).CreateZone,
+	"getDNSZone":                        (*DNSService).GetZone,
+	"updateDNSZone":                     (*DNSService).UpdateZone,
+	"deleteDNSZone":                     (*DNSService).DeleteZone,
+	"verifyDNSZone":                     (*DNSService).VerifyZone,
+	"listDNSRecords":                    (*DNSService).ListRecords,
+	"createDNSRecord":                   (*DNSService).CreateRecord,
+	"getDNSRecord":                      (*DNSService).GetRecord,
+	"updateDNSRecord":                   (*DNSService).UpdateRecord,
+	"deleteDNSRecord":                   (*DNSService).DeleteRecord,
+	"batchDNSRecords":                   (*DNSService).BatchRecords,
+	"exportDNSZone":                     (*DNSService).ExportZone,
+	"importDNSZone":                     (*DNSService).ImportZone,
+	"listDomainTLDs":                    (*DomainsService).ListTLDs,
+	"searchDomains":                     (*DomainsService).Search,
+	"checkDomainTransfer":               (*DomainsService).CheckTransfer,
+	"listDomains":                       (*DomainsService).List,
+	"registerDomain":                    (*DomainsService).Register,
+	"transferDomain":                    (*DomainsService).Transfer,
+	"getDomain":                         (*DomainsService).Get,
+	"updateDomain":                      (*DomainsService).Update,
+	"setDomainNameServers":              (*DomainsService).SetNameServers,
+	"getDomainContact":                  (*DomainsService).GetContact,
+	"updateDomainContact":               (*DomainsService).UpdateContact,
+	"renewDomain":                       (*DomainsService).Renew,
+	"requestDomainAuthCode":             (*DomainsService).RequestAuthCode,
+	"getDomainAuthCode":                 (*DomainsService).GetAuthCode,
+	"listDomainOrders":                  (*DomainsService).ListOrders,
+	"getDomainOrder":                    (*DomainsService).GetOrder,
+	"retryDomainOrderPayment":           (*DomainsService).RetryOrderPayment,
+	"getRegistryNamespace":              (*RegistryService).GetNamespace,
+	"setRegistryNamespace":              (*RegistryService).SetNamespace,
+	"listRegistryRepositories":          (*RegistryService).ListRepositories,
+	"createRegistryRepository":          (*RegistryService).CreateRepository,
+	"getRegistryRepository":             (*RegistryService).GetRepository,
+	"updateRegistryRepository":          (*RegistryService).UpdateRepository,
+	"deleteRegistryRepository":          (*RegistryService).DeleteRepository,
+	"listRegistryTags":                  (*RegistryService).ListTags,
+	"getRegistryTag":                    (*RegistryService).GetTag,
+	"deleteRegistryTag":                 (*RegistryService).DeleteTag,
+	"listRegistryTokens":                (*RegistryService).ListTokens,
+	"createRegistryToken":               (*RegistryService).CreateToken,
+	"deleteRegistryToken":               (*RegistryService).DeleteToken,
+	"listIamActions":                    (*IAMService).ListActions,
+	"getIamSettings":                    (*IAMService).GetSettings,
+	"updateIamSettings":                 (*IAMService).UpdateSettings,
+	"listIamTeams":                      (*IAMService).ListTeams,
+	"createIamTeam":                     (*IAMService).CreateTeam,
+	"getIamTeam":                        (*IAMService).GetTeam,
+	"updateIamTeam":                     (*IAMService).UpdateTeam,
+	"deleteIamTeam":                     (*IAMService).DeleteTeam,
+	"listIamTeamMembers":                (*IAMService).ListTeamMembers,
+	"addIamTeamMember":                  (*IAMService).AddTeamMember,
+	"removeIamTeamMember":               (*IAMService).RemoveTeamMember,
+	"listIamPolicies":                   (*IAMService).ListPolicies,
+	"createIamPolicy":                   (*IAMService).CreatePolicy,
+	"getIamPolicy":                      (*IAMService).GetPolicy,
+	"updateIamPolicy":                   (*IAMService).UpdatePolicy,
+	"deleteIamPolicy":                   (*IAMService).DeletePolicy,
+	"listIamPolicyAttachments":          (*IAMService).ListAttachments,
+	"attachIamPolicy":                   (*IAMService).Attach,
+	"detachIamPolicy":                   (*IAMService).Detach,
+	"getIamEffectiveAccess":             (*IAMService).GetEffectiveAccess,
+	"simulateIamAccess":                 (*IAMService).Simulate,
+	"listIamMembers":                    (*IAMService).ListMembers,
+	"listCertificates":                  (*CertificatesService).List,
+	"requestCertificate":                (*CertificatesService).Request,
+	"importCertificate":                 (*CertificatesService).Import,
+	"getCertificate":                    (*CertificatesService).Get,
+	"updateCertificate":                 (*CertificatesService).Update,
+	"verifyCertificate":                 (*CertificatesService).Verify,
+	"reimportCertificate":               (*CertificatesService).Reimport,
+	"exportCertificate":                 (*CertificatesService).Export,
+	"revokeCertificate":                 (*CertificatesService).Revoke,
+	"deleteCertificate":                 (*CertificatesService).Delete,
+	"quoteDNSZones":                     (*DNSService).QuoteZones,
 	"getOperation":                      (*OperationsService).Get,
 	"streamOperation":                   (*OperationsService).Stream,
 }
 
 // aheadOfSpec are operations the SDK already supports that the spec in
-// testdata does not list yet. Remove an entry once the spec has it.
-var aheadOfSpec = map[string]bool{}
+// testdata does not list yet, with the route from the API contract, so
+// TestSpecRoutes checks them too. Remove an entry once the spec has it.
+var aheadOfSpec = map[string]specOperation{}
 
 // notInSDK are spec operations the SDK deliberately has no method for yet,
 // each with the reason. Agent sessions answer only AI apps connected through
@@ -282,13 +360,21 @@ func TestSpecCoverage(t *testing.T) {
 			t.Errorf("spec operation %s (%s %s) has no SDK method: add one and list it in operationMethods", op.id, op.method, op.path)
 		}
 	}
+	for id := range aheadOfSpec {
+		if inSpec[id] {
+			t.Errorf("aheadOfSpec lists %s, which the spec now has: remove it", id)
+		}
+		if _, ok := operationMethods[id]; !ok {
+			t.Errorf("aheadOfSpec lists %s, which has no method in operationMethods", id)
+		}
+	}
 	for id := range notInSDK {
 		if !inSpec[id] {
 			t.Errorf("notInSDK lists %s, which is not in the spec: remove it", id)
 		}
 	}
 	for id := range operationMethods {
-		if !inSpec[id] && !aheadOfSpec[id] {
+		if _, ahead := aheadOfSpec[id]; !inSpec[id] && !ahead {
 			t.Errorf("operationMethods lists %s, which is not in the spec: remove it or add it to aheadOfSpec", id)
 		}
 	}
@@ -315,6 +401,10 @@ func TestSpecRoutes(t *testing.T) {
 	c := newTestClientAt(t, srv.URL)
 
 	routes := map[string]specOperation{}
+	for id, op := range aheadOfSpec {
+		op.id = id
+		routes[id] = op
+	}
 	for _, op := range readSpecOperations(t, "testdata/public-api.yaml") {
 		routes[op.id] = op
 	}

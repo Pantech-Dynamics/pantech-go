@@ -6,7 +6,8 @@
 
 The official Go SDK for the [Pantech Dynamics public API](https://docs.pantechdynamics.com/api):
 instances, VPC networks, firewalls, public IPs, load balancers, volumes, snapshots, managed
-databases, managed Kubernetes, SSH keys, webhooks, billing, usage, and moving from another cloud.
+databases, managed Kubernetes, DNS, domains, a private container registry, teams and access policies, TLS certificates, SSH keys, webhooks, billing, usage, and moving from
+another cloud.
 
 - Every operation in the public API has a typed method, except agent sessions, which answer only
   AI apps connected through Pantech's MCP server.
@@ -54,7 +55,7 @@ func main() {
 ```
 
 More in [`examples/`](examples): creating an instance, listing everything, following an
-operation, a webhook receiver, and moving from AWS.
+operation, a webhook receiver, moving from AWS, and DNS records.
 
 ## Authentication
 
@@ -84,8 +85,8 @@ a `Client` does not show it. `c.Me.Get(ctx)` describes the key; `c.Me.Revoke(ctx
 
 `c.Instances`, `c.Networks`, `c.Subnets`, `c.FirewallRules`, `c.PublicIPs`,
 `c.PortForwardingRules`, `c.SecurityGroups`, `c.LoadBalancers`, `c.Volumes`, `c.Snapshots`,
-`c.Databases`, `c.Kubernetes`, `c.SSHKeys`, `c.Webhooks`, `c.Migrate`, `c.Operations`, `c.Catalog` (regions,
-plans, images, disk offerings, database engines, Kubernetes versions, price estimates),
+`c.Databases`, `c.Kubernetes`, `c.SSHKeys`, `c.Webhooks`, `c.Migrate`, `c.DNS`, `c.Domains`, `c.Registry`, `c.IAM`, `c.Certificates`,
+`c.Operations`, `c.Catalog` (regions, plans, images, disk offerings, database engines, Kubernetes versions, price estimates),
 `c.Billing` (credit, receipts, usage) and `c.Me`.
 
 Request types follow the API's field names. Optional fields are pointers, and a nil field is not
@@ -125,7 +126,8 @@ case err != nil:
 }
 ```
 
-`Detail` is plain language and safe to show to your users.
+`Detail` is plain language and safe to show to your users. The codes of newer features have
+constants, such as `pantech.CodeDNSRecordExists` and `pantech.CodeDomainNotAvailable`.
 
 ## Pagination
 
@@ -193,6 +195,142 @@ A failed connection or scan returns a `*pantech.CloudFailureError` whose `Failur
 what to do. `c.Migrate.UpdateItem` excludes an item or changes its plan, size, range or role before
 you export. The whole flow is in [`examples/migrate-from-aws`](examples/migrate-from-aws).
 
+## DNS and domains
+
+`c.DNS` hosts zones on Pantech DNS, on Pantech's own name servers, and manages their record
+sets. A new zone answers once the domain's registrar delegates to its two `NameServers`; records
+added before that stay `pending` until the zone is active. In an active zone a write answers at
+once with the record `pending`, it is served within about a minute, and `c.DNS.WaitForRecord`
+waits for that. Five zones are free; `c.DNS.QuoteZones` says what the rest cost a month.
+
+```go
+zone, err := c.DNS.CreateZone(ctx, pantech.CreateDNSZoneRequest{Name: "example.com"})
+rec, err := c.DNS.CreateRecord(ctx, zone.ID, pantech.CreateDNSRecordRequest{
+	Name: "www", Type: pantech.DNSRecordA, Values: []string{"203.0.113.10"},
+})
+rec, err = c.DNS.WaitForRecord(ctx, zone.ID, rec.ID, nil)
+
+// Change it only if nobody else has since you read it (412 VERSION_CONFLICT otherwise).
+_, err = c.DNS.UpdateRecord(ctx, zone.ID, rec.ID, pantech.UpdateDNSRecordRequest{TTL: pantech.Ptr(60)},
+	pantech.WithIfMatch(rec.Version))
+```
+
+`c.DNS.BatchRecords` applies up to 1000 changes all or nothing, and `ImportZone` and `ExportZone`
+read and write BIND zone files.
+
+`c.Domains` searches for, registers, transfers in, renews and configures domains. A registration
+is paid from your credit before the registrar is asked, so `Register` returns the order to wait
+for; a failed order returns a `*pantech.DomainOrderError` and its amount goes back to your credit.
+When credit falls short the order waits in `awaiting_payment` for an hour: in US dollars your
+saved card is charged the difference, and in naira you add credit. `WaitForOrder` then returns a
+`*pantech.DomainPaymentRequiredError`, whose `PaymentURL` is set only when the bank asks the user
+to confirm the payment; `WaitForPayment` follows the order until it completes (or fails
+`insufficient_credit`, with nothing charged, when the payment window ends), and
+`RetryOrderPayment` tries the payment again at once and waits another hour. It never charges twice. Prices are before VAT; `TLDOffer.PrivacyAlwaysOn`
+marks TLDs (.ng) whose registry always hides the contact.
+
+```go
+results, err := c.Domains.Search(ctx, "example")
+// results[i].Status is available, unavailable or unknown; results[i].Price.RegisterPrice(years)
+// is what registering costs, in minor units.
+out, err := c.Domains.Register(ctx, pantech.RegisterDomainRequest{
+	Name: "example.com", Years: pantech.Ptr(1), Contact: contact, AcceptTerms: true,
+}, pantech.WithIdempotencyKey("register-example-com"))
+order, err := c.Domains.WaitForOrder(ctx, out.Order.ID, nil)
+var pay *pantech.DomainPaymentRequiredError
+if errors.As(err, &pay) {
+	if pay.PaymentURL != "" {
+		fmt.Println("Confirm the payment here:", pay.PaymentURL)
+	}
+	order, err = c.Domains.WaitForPayment(ctx, out.Order.ID, nil)
+}
+```
+
+The registrant contact is personal data: `pantech.DomainContact` prints as `{…}` so it does not
+end up in logs. `c.Domains.RequestAuthCode` and `WaitForAuthCode` get the code that moves a domain
+to another registrar (the transfer lock must be off); anyone holding it can take the domain.
+
+## Container registry
+
+`c.Registry` manages the organization's private registry: one namespace, its repositories, their
+tags, and registry tokens for CI and clusters. Images themselves are pushed and pulled with
+`docker` or any OCI client at `registry.pantechdynamics.com/<namespace>/<repository>:<tag>`.
+
+```go
+ns, err := c.Registry.SetNamespace(ctx, pantech.SetRegistryNamespaceRequest{Name: "acme"})
+repo, err := c.Registry.CreateRepository(ctx, pantech.CreateRegistryRepositoryRequest{
+	Name:      "api/server",
+	Retention: &pantech.RegistryRetention{KeepLast: pantech.Ptr(50), KeepPattern: pantech.Ptr("v*")},
+})
+for tag, err := range c.Registry.AllTags(ctx, repo.ID, nil) {
+	// tag.Name, tag.Digest, tag.Platforms ...
+}
+
+tok, err := c.Registry.CreateToken(ctx, pantech.CreateRegistryTokenRequest{
+	Name: "github-actions", Permission: pantech.RegistryPush, Repositories: []string{"api/server"},
+})
+// tok.Secret is in this answer only: store it in your CI's secrets, then
+//   echo "$TOKEN" | docker login registry.pantechdynamics.com -u pantech --password-stdin
+```
+
+`RegistryToken` prints without its `Secret`. `GetNamespace` answers `REGISTRY_NAMESPACE_NOT_SET`
+until a namespace is claimed (`pantech.CodeRegistryNamespaceNotSet`).
+
+## Teams and access policies
+
+`c.IAM` decides who in the organization may do what. Owners are always allowed everything; a
+matching deny wins over any allow, for admins too; members get what their policies (directly or
+through their teams) allow, plus reads while the member baseline is `read`. `pantech.Allow` and
+`pantech.Deny` build statements:
+
+```go
+pol, err := c.IAM.CreatePolicy(ctx, pantech.CreateIAMPolicyRequest{
+	Name: "staging-operators",
+	Statements: []pantech.PolicyStatement{
+		pantech.Allow([]string{"instances:Read", "instances:Reboot", "instances:Resize"}, []string{"name:staging-*"}).
+			WithSourceIP("102.89.0.0/16"),
+		pantech.Deny([]string{"instances:Delete"}, []string{"name:prod-*"}).WithSid("NoProdDeletes"),
+	},
+})
+team, err := c.IAM.CreateTeam(ctx, pantech.CreateIAMTeamRequest{Name: "Platform"})
+_, err = c.IAM.AddTeamMember(ctx, team.ID, "usr_…")
+_, err = c.IAM.Attach(ctx, pol.ID, pantech.AttachIAMPolicyRequest{PrincipalType: pantech.PrincipalTeam, PrincipalID: team.ID})
+
+sim, err := c.IAM.Simulate(ctx, pantech.SimulateIAMAccessRequest{
+	UserID: "usr_…", Action: "instances:Delete", ResourceName: pantech.Ptr("prod-api"),
+})
+fmt.Println(sim.Allowed, sim.Decision) // false explicit_deny
+```
+
+`UpdatePolicy` replaces the whole policy; pass `pantech.WithIfMatch(pol.Version)` so a change
+made since you read it is not overwritten. A refused call answers `ACCESS_DENIED`
+(`pantech.CodeAccessDenied`), naming the action.
+
+## Certificates
+
+`c.Certificates` issues TLS certificates free from a publicly trusted CA and renews them
+automatically. A name in one of your active Pantech DNS zones is validated with no work on your
+side; for any other name, add the CNAME its validation shows at your DNS host, once.
+
+```go
+cert, err := c.Certificates.Request(ctx, pantech.RequestCertificateRequest{
+	Names: []string{"example.com", "*.example.com"}, Exportable: pantech.Ptr(true),
+})
+for _, v := range cert.Validations {
+	if v.Method == pantech.ValidationCNAME {
+		fmt.Printf("add %s CNAME %s\n", *v.CNAMEName, *v.CNAMETarget)
+	}
+}
+cert, err = c.Certificates.WaitForCertificate(ctx, cert.ID, &pantech.WaitOptions{Timeout: time.Hour})
+
+exp, err := c.Certificates.Export(ctx, cert.ID) // only when created Exportable
+os.WriteFile("fullchain.pem", []byte(exp.FullChainPEM()), 0o600)
+os.WriteFile("privkey.pem", []byte(exp.PrivateKeyPEM), 0o600)
+```
+
+`ExportedCertificate`, `ImportCertificateRequest` and `ReimportCertificateRequest` never print
+their private key with `fmt`. `Import` and `Reimport` bring a certificate bought elsewhere.
+
 ## Webhooks
 
 Verify every delivery against the raw body before acting on it:
@@ -222,7 +360,7 @@ order, err := c.Instances.Create(ctx, req, pantech.WithIdempotencyKey("deploy-42
 ```
 
 Every typed method, and `Do`, takes these per-call options: `WithIdempotencyKey(k)`,
-`WithRequestHeader(k, v)` and `WithNoRetry()`.
+`WithRequestHeader(k, v)`, `WithIfMatch(version)` and `WithNoRetry()`.
 
 ## Retries
 

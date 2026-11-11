@@ -71,6 +71,8 @@ The SDK follows the published OpenAPI spec at
    - add the row to `operationMethods` in `coverage_test.go`.
    - an operation the SDK deliberately leaves out goes in `notInSDK` in `coverage_test.go`, with
      the reason.
+   - an operation the SDK ships before the published spec lists it goes in `aheadOfSpec`, with its
+     method and path, so `TestSpecRoutes` still checks it; remove the entry once the spec has it.
 4. A route that does not replay on the same Idempotency-Key goes in `noReplay` in `retry.go`, with
    a test in `retry_test.go`.
 

@@ -202,3 +202,222 @@ func (p *GetCloudScanParams) values() url.Values {
 	}
 	return v
 }
+
+// ListDNSZonesParams are the query parameters of list DNS zones. Zero values are left out.
+type ListDNSZonesParams struct {
+	// Items per page, 1 to 100.
+	Limit int
+	// The previous page's `next_cursor`, to get the next page.
+	Cursor string
+	// Only zones whose name contains this text.
+	Q string
+	// Only zones with this status. One of: pending, awaiting_delegation, active, suspended, deleting, failed.
+	Status string
+}
+
+func (p *ListDNSZonesParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Limit != 0 {
+		v.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.Cursor != "" {
+		v.Set("cursor", p.Cursor)
+	}
+	if p.Q != "" {
+		v.Set("q", p.Q)
+	}
+	if p.Status != "" {
+		v.Set("status", p.Status)
+	}
+	return v
+}
+
+// ListDNSRecordsParams are the query parameters of list DNS records. Zero values are left out.
+type ListDNSRecordsParams struct {
+	// Items per page, 1 to 100.
+	Limit int
+	// The previous page's `next_cursor`, to get the next page.
+	Cursor string
+	// Only records with exactly this name, relative to the zone (`@`, `www`).
+	Name string
+	// Only records whose name or values contain this text.
+	Q string
+	// Only records of this type, such as `MX`.
+	Type string
+}
+
+func (p *ListDNSRecordsParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Limit != 0 {
+		v.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.Cursor != "" {
+		v.Set("cursor", p.Cursor)
+	}
+	if p.Name != "" {
+		v.Set("name", p.Name)
+	}
+	if p.Q != "" {
+		v.Set("q", p.Q)
+	}
+	if p.Type != "" {
+		v.Set("type", p.Type)
+	}
+	return v
+}
+
+// ListDomainsParams are the query parameters of list domains. Zero values are left out.
+type ListDomainsParams struct {
+	// Items per page, 1 to 100.
+	Limit int
+	// The previous page's `next_cursor`, to get the next page.
+	Cursor string
+	// Only domains whose name contains this text.
+	Q string
+	// Only domains with this status. One of: pending, registering, transferring, active, expired, failed, transferred_out, suspended.
+	Status string
+}
+
+func (p *ListDomainsParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Limit != 0 {
+		v.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.Cursor != "" {
+		v.Set("cursor", p.Cursor)
+	}
+	if p.Q != "" {
+		v.Set("q", p.Q)
+	}
+	if p.Status != "" {
+		v.Set("status", p.Status)
+	}
+	return v
+}
+
+// ListRegistryParams are the query parameters of list registry repositories and list registry tags. Zero values are left out.
+type ListRegistryParams struct {
+	// Items per page, 1 to 100.
+	Limit int
+	// The previous page's `next_cursor`, to get the next page.
+	Cursor string
+	// Only items whose name contains this text.
+	Q string
+}
+
+func (p *ListRegistryParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Limit != 0 {
+		v.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.Cursor != "" {
+		v.Set("cursor", p.Cursor)
+	}
+	if p.Q != "" {
+		v.Set("q", p.Q)
+	}
+	return v
+}
+
+// ListIAMPoliciesParams are the query parameters of list policies. Zero values are left out.
+type ListIAMPoliciesParams struct {
+	// Items per page, 1 to 100.
+	Limit int
+	// The previous page's `next_cursor`, to get the next page.
+	Cursor string
+	// Only Pantech's managed policies (true) or only yours (false).
+	Managed *bool
+}
+
+func (p *ListIAMPoliciesParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Limit != 0 {
+		v.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.Cursor != "" {
+		v.Set("cursor", p.Cursor)
+	}
+	if p.Managed != nil {
+		v.Set("managed", strconv.FormatBool(*p.Managed))
+	}
+	return v
+}
+
+// ListIAMMembersParams are the query parameters of list members. Zero values are left out.
+type ListIAMMembersParams struct {
+	// Items per page, 1 to 100.
+	Limit int
+	// The previous page's `next_cursor`, to get the next page.
+	Cursor string
+	// Only members whose email or name contains this text.
+	Q string
+}
+
+func (p *ListIAMMembersParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Limit != 0 {
+		v.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.Cursor != "" {
+		v.Set("cursor", p.Cursor)
+	}
+	if p.Q != "" {
+		v.Set("q", p.Q)
+	}
+	return v
+}
+
+// ListCertificatesParams are the query parameters of list certificates. Zero values are left out.
+type ListCertificatesParams struct {
+	// Items per page, 1 to 100.
+	Limit int
+	// The previous page's `next_cursor`, to get the next page.
+	Cursor string
+	// Only certificates with a name containing this text.
+	Q string
+	// One of: pending_validation, issuing, issued, renewing, expired, revoked, failed.
+	Status string
+	// One of: public, imported.
+	Kind string
+}
+
+func (p *ListCertificatesParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Limit != 0 {
+		v.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.Cursor != "" {
+		v.Set("cursor", p.Cursor)
+	}
+	if p.Q != "" {
+		v.Set("q", p.Q)
+	}
+	if p.Status != "" {
+		v.Set("status", p.Status)
+	}
+	if p.Kind != "" {
+		v.Set("kind", p.Kind)
+	}
+	return v
+}
