@@ -28579,7 +28579,7 @@ components:
           description: "The zone's own two Pantech DNS name servers, to delegate to at your registrar: set exactly these, no more and no fewer. Every zone gets its own pair, never the one the domain is delegated to when the zone is created, so a stale delegation can never serve someone else's zone. Empty while `pending`."
           items:
             type: string
-          examples: [["ana.ns.pantechdynamics.com", "ayo.ns.pantechdynamics.com"]]
+          examples: [["ana-ns.pantechdynamics.com", "ayo-ns.pantechdynamics.com"]]
         domain_id:
           type:
             - string
@@ -29166,7 +29166,7 @@ components:
           type: array
           items:
             type: string
-          examples: [["ana.ns.pantechdynamics.com", "ayo.ns.pantechdynamics.com"]]
+          examples: [["ana-ns.pantechdynamics.com", "ayo-ns.pantechdynamics.com"]]
         zone_id:
           type:
             - string
