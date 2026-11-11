@@ -22,12 +22,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // Version is this SDK's version. It goes into the default User-Agent.
-const Version = "0.3.0"
+const Version = "0.4.0"
 
 // DefaultBaseURL is the production public API. Every path is relative to it.
 const DefaultBaseURL = "https://api.pantechdynamics.com/public/v1"
@@ -74,6 +75,11 @@ type Client struct {
 	SSHKeys             *SSHKeysService
 	Webhooks            *WebhooksService
 	Migrate             *MigrateService
+	DNS                 *DNSService
+	Domains             *DomainsService
+	Registry            *RegistryService
+	IAM                 *IAMService
+	Certificates        *CertificatesService
 	Operations          *OperationsService
 
 	baseURL    string
@@ -199,6 +205,11 @@ func NewClient(opts ...Option) (*Client, error) {
 	c.SSHKeys = &SSHKeysService{c}
 	c.Webhooks = &WebhooksService{c}
 	c.Migrate = &MigrateService{c}
+	c.DNS = &DNSService{c}
+	c.Domains = &DomainsService{c}
+	c.Registry = &RegistryService{c}
+	c.IAM = &IAMService{c}
+	c.Certificates = &CertificatesService{c}
 	c.Operations = &OperationsService{c}
 	return c, nil
 }
@@ -231,6 +242,13 @@ func WithRequestHeader(key, value string) RequestOption {
 		}
 		o.headers.Set(key, value)
 	}
+}
+
+// WithIfMatch sends If-Match: version, so a change applies only while the
+// resource is still at that version, such as a DNS record's Version. A
+// resource changed since answers 412 VERSION_CONFLICT.
+func WithIfMatch(version int) RequestOption {
+	return WithRequestHeader("If-Match", strconv.Itoa(version))
 }
 
 // WithNoRetry sends the call once, whatever the answer.
