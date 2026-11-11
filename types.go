@@ -2434,7 +2434,7 @@ type DNSZone struct {
 	// name-server pair. One of: delegation_timeout, provider_rejected, provider_limit.
 	FailureCode *string `json:"failure_code"`
 	// The two name servers to set at the domain's registrar, such as
-	// `ana.ns.pantechdynamics.com`. Empty while `pending`.
+	// `ana-ns.pantechdynamics.com`. Empty while `pending`.
 	NameServers []string `json:"name_servers"`
 	// The Pantech domain (`dom_…`) that delegates to this zone, if any.
 	DomainID    *string `json:"domain_id"`
