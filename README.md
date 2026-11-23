@@ -228,6 +228,8 @@ to confirm the payment; `WaitForPayment` follows the order until it completes (o
 `insufficient_credit`, with nothing charged, when the payment window ends), and
 `RetryOrderPayment` tries the payment again at once and waits another hour. It never charges twice. Prices are before VAT; `TLDOffer.PrivacyAlwaysOn`
 marks TLDs (.ng) whose registry always hides the contact.
+Set `AcceptTerms` only once the registrant has read and accepted the
+[Domain Registration Agreement](https://pantechdynamics.com/legal/domain-registration).
 
 ```go
 results, err := c.Domains.Search(ctx, "example")

@@ -2724,7 +2724,8 @@ type RegisterDomainRequest struct {
 	AutoRenew *bool `json:"auto_renew,omitempty"`
 	// On when left out.
 	Privacy *bool `json:"privacy,omitempty"`
-	// Must be true: the registrant agreement and registrant rights were shown and accepted.
+	// Must be true: the registrant accepted the Domain Registration Agreement
+	// (https://pantechdynamics.com/legal/domain-registration).
 	AcceptTerms bool `json:"accept_terms"`
 }
 
@@ -2734,11 +2735,13 @@ type TransferDomainRequest struct {
 	// From the current registrar.
 	AuthCode string `json:"auth_code"`
 	// 1 to 10; a transfer adds one year when left out.
-	Years       *int          `json:"years,omitempty"`
-	Contact     DomainContact `json:"contact"`
-	AutoRenew   *bool         `json:"auto_renew,omitempty"`
-	Privacy     *bool         `json:"privacy,omitempty"`
-	AcceptTerms bool          `json:"accept_terms"`
+	Years     *int          `json:"years,omitempty"`
+	Contact   DomainContact `json:"contact"`
+	AutoRenew *bool         `json:"auto_renew,omitempty"`
+	Privacy   *bool         `json:"privacy,omitempty"`
+	// Must be true: the registrant accepted the Domain Registration Agreement
+	// (https://pantechdynamics.com/legal/domain-registration).
+	AcceptTerms bool `json:"accept_terms"`
 }
 
 // String hides the auth code and the contact.
