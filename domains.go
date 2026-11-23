@@ -115,7 +115,8 @@ func (s *DomainsService) All(ctx context.Context, params *ListDomainsParams, opt
 // (TLDOffer.RegisterPrice, plus VAT) is taken from credit before the
 // registrar is asked; when credit falls short the order waits in
 // awaiting_payment for an hour (see DomainOrder). Follow the order with WaitForOrder. The domain gets a Pantech DNS
-// zone of its name. AcceptTerms must be true. Retrying with the same
+// zone of its name. AcceptTerms must be true: the registrant has accepted
+// the Domain Registration Agreement (https://pantechdynamics.com/legal/domain-registration). Retrying with the same
 // Idempotency-Key (WithIdempotencyKey) answers the original order.
 // Scope: write.
 func (s *DomainsService) Register(ctx context.Context, req RegisterDomainRequest, opts ...RequestOption) (*DomainOrderAccepted, error) {
