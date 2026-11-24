@@ -69,6 +69,65 @@ type CreateInstanceRequest struct {
 	SecurityGroupID *string `json:"security_group_id,omitempty"`
 	// Your own labels, as string keys and values.
 	Tags *map[string]string `json:"tags,omitempty"`
+	// Turn on Dynamic IP once the instance runs.
+	DynamicIP *CreateInstanceDynamicIP `json:"address_rotation,omitempty"`
+}
+
+// CreateInstanceDynamicIP configures Dynamic IP on a new instance.
+type CreateInstanceDynamicIP struct {
+	// How often the rotating public address changes. One of: every_12_hours, daily, weekly, monthly.
+	Schedule string `json:"schedule"`
+	// `keep` (default) lets open connections finish on the old address; `move` moves them at once. One of: keep, move.
+	Connections *string `json:"connections,omitempty"`
+}
+
+// PutDynamicIPRequest enables or updates Dynamic IP on an instance.
+type PutDynamicIPRequest struct {
+	// How often the rotating public address changes. One of: every_12_hours, daily, weekly, monthly.
+	Schedule string `json:"schedule"`
+	// `keep` (default) lets open connections finish on the old address; `move` moves them at once. One of: keep, move.
+	Connections *string `json:"connections,omitempty"`
+	// Allow rotating the address on demand. Requires on-demand rotation enabled for your organization.
+	OnDemand *bool `json:"on_demand,omitempty"`
+}
+
+// DynamicIP is an instance's Dynamic IP configuration and status.
+type DynamicIP struct {
+	InstanceID string `json:"instance_id"`
+	// How often the rotating public address changes. One of: every_12_hours, daily, weekly, monthly.
+	Schedule string `json:"schedule"`
+	// How open connections behave on rotation. One of: keep, move.
+	Connections string `json:"connections"`
+	// Whether on-demand rotation is allowed.
+	OnDemand bool `json:"on_demand"`
+	// Current Dynamic IP state. One of: enabling, active, degraded, disabling, off, failed.
+	State string `json:"state"`
+	// The rotating public address in use now; nil before the first one is ready or while degraded onto the instance's static address.
+	CurrentAddress *string `json:"current_address"`
+	// When the next scheduled rotation runs; nil when not scheduled.
+	NextRotationAt *time.Time `json:"next_rotation_at"`
+	// When the address last rotated; nil before the first rotation.
+	LastRotatedAt *time.Time `json:"last_rotated_at"`
+	// Percentage added to the instance's hourly price while Dynamic IP is on.
+	SurchargePercent float64 `json:"surcharge_percent"`
+	// On-demand rotations used in the last 24 hours.
+	OnDemandUsed int `json:"on_demand_used"`
+	// Maximum on-demand rotations allowed per 24 hours.
+	OnDemandLimit int `json:"on_demand_limit"`
+	// Why Dynamic IP is `failed` or `degraded`; nil otherwise.
+	FailureReason *string `json:"failure_reason"`
+	// Recent Dynamic IP changes, newest first.
+	Events []DynamicIPEvent `json:"events"`
+}
+
+// DynamicIPEvent is one recorded change in an instance's Dynamic IP history.
+type DynamicIPEvent struct {
+	// What triggered the change. One of: enabled, scheduled, on_demand, failover, handover, disabled.
+	Kind        string    `json:"kind"`
+	FromAddress *string   `json:"from_address"`
+	ToAddress   *string   `json:"to_address"`
+	Degraded    bool      `json:"degraded"`
+	OccurredAt  time.Time `json:"occurred_at"`
 }
 
 // CreateNetworkRequest is the API's create network request object.
@@ -3307,4 +3366,444 @@ type DNSZoneQuote struct {
 	MonthlyEstimateMinor int64 `json:"monthly_estimate_minor"`
 	// 730.
 	NominalMonthHours int `json:"nominal_month_hours"`
+}
+
+// ObjectStorageLimits are the organization's object storage quotas.
+type ObjectStorageLimits struct {
+	MaxBuckets      int   `json:"max_buckets"`
+	MaxStorageBytes int64 `json:"max_storage_bytes"`
+	MaxObjects      int64 `json:"max_objects"`
+}
+
+// ObjectStorageStatus reports whether object storage is enabled and its S3 endpoint.
+type ObjectStorageStatus struct {
+	Enabled             bool                 `json:"enabled"`
+	Endpoint            string               `json:"endpoint"`
+	Beta                bool                 `json:"beta"`
+	DirectUploadEnabled bool                 `json:"direct_upload_enabled"`
+	Limits              *ObjectStorageLimits `json:"limits"`
+}
+
+// ObjectStorageHourUsage is one hour of object storage transfer and request counts.
+type ObjectStorageHourUsage struct {
+	Hour          time.Time `json:"hour"`
+	BytesSent     int64     `json:"bytes_sent"`
+	BytesReceived int64     `json:"bytes_received"`
+	ReadOps       int64     `json:"read_ops"`
+	WriteOps      int64     `json:"write_ops"`
+}
+
+// ObjectStorageUsage is the organization's hourly transfer and request usage summary.
+type ObjectStorageUsage struct {
+	Range              string                   `json:"range"`
+	TotalBytesSent     int64                    `json:"total_bytes_sent"`
+	TotalBytesReceived int64                    `json:"total_bytes_received"`
+	TotalReadOps       int64                    `json:"total_read_ops"`
+	TotalWriteOps      int64                    `json:"total_write_ops"`
+	Hours              []ObjectStorageHourUsage `json:"hours"`
+}
+
+// ObjectStorageKey is an S3 access key without its secret.
+type ObjectStorageKey struct {
+	// The key's id, starting `osk_`.
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Region      string    `json:"region"`
+	AccessKeyID string    `json:"access_key_id"`
+	ReadOnly    bool      `json:"read_only"`
+	Buckets     []string  `json:"buckets"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// CreatedObjectStorageKey is a newly created S3 access key with its secret, shown once.
+// SecretAccessKey never prints with fmt.
+type CreatedObjectStorageKey struct {
+	ObjectStorageKey
+	// Shown once on creation; store it immediately.
+	SecretAccessKey string `json:"secret_access_key"`
+	// The S3 endpoint to use with this key.
+	Endpoint string `json:"endpoint"`
+}
+
+// String hides SecretAccessKey from fmt output and logs.
+func (k CreatedObjectStorageKey) String() string {
+	return "pantech.CreatedObjectStorageKey{ID: " + k.ID + ", Name: " + k.Name + ", AccessKeyID: " + k.AccessKeyID + ", SecretAccessKey: …}"
+}
+
+// GoString hides SecretAccessKey from %#v too.
+func (k CreatedObjectStorageKey) GoString() string { return k.String() }
+
+// CreateObjectStorageKeyRequest creates a new S3 access key.
+type CreateObjectStorageKeyRequest struct {
+	// 1 to 64 letters, digits, `-`, `_` or `.`.
+	Name     string    `json:"name"`
+	Region   *string   `json:"region,omitempty"`
+	ReadOnly *bool     `json:"read_only,omitempty"`
+	Buckets  *[]string `json:"buckets,omitempty"`
+}
+
+// Bucket is an object storage bucket.
+type Bucket struct {
+	// The bucket's id, starting `bkt_`.
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Region         string   `json:"region"`
+	Endpoint       string   `json:"endpoint"`
+	QuotaBytes     int64    `json:"quota_bytes"`
+	SizeBytes      int64    `json:"size_bytes"`
+	ObjectCount    int64    `json:"object_count"`
+	Versioning     bool     `json:"versioning"`
+	ObjectLock     bool     `json:"object_lock"`
+	PublicPrefixes []string `json:"public_prefixes"`
+	// One of: provisioning, active, updating, deleting, failed, unknown.
+	State      string     `json:"state"`
+	CreatedAt  time.Time  `json:"created_at"`
+	RetiredAt  *time.Time `json:"retired_at"`
+	PurgeDueAt *time.Time `json:"purge_due_at"`
+}
+
+// CreatedBucket is a newly created bucket and the operation creating it.
+type CreatedBucket struct {
+	Bucket
+	OperationID string `json:"operation_id"`
+}
+
+// UpdatedBucket is a bucket and the operation applying the change, if any.
+type UpdatedBucket struct {
+	Bucket
+	OperationID *string `json:"operation_id"`
+}
+
+// CreateBucketRequest creates a bucket.
+type CreateBucketRequest struct {
+	// 3 to 63 lowercase letters, digits and hyphens, starting and ending with a letter or digit.
+	Name           string    `json:"name"`
+	Region         *string   `json:"region,omitempty"`
+	QuotaBytes     *int64    `json:"quota_bytes,omitempty"`
+	Versioning     *bool     `json:"versioning,omitempty"`
+	ObjectLock     *bool     `json:"object_lock,omitempty"`
+	PublicPrefixes *[]string `json:"public_prefixes,omitempty"`
+}
+
+// UpdateBucketRequest changes a bucket's quota, versioning or public prefixes.
+type UpdateBucketRequest struct {
+	QuotaBytes     *int64    `json:"quota_bytes,omitempty"`
+	Versioning     *bool     `json:"versioning,omitempty"`
+	PublicPrefixes *[]string `json:"public_prefixes,omitempty"`
+}
+
+// BucketStats holds live stored bytes and object count for a bucket.
+type BucketStats struct {
+	SizeBytes   int64 `json:"size_bytes"`
+	ObjectCount int64 `json:"object_count"`
+}
+
+// EmptyBucketResult summarizes an empty-bucket operation.
+type EmptyBucketResult struct {
+	DeletedCount     int      `json:"deleted_count"`
+	AbortedUploads   int      `json:"aborted_uploads"`
+	LockedCount      int      `json:"locked_count"`
+	SampleLockedKeys []string `json:"sample_locked_keys"`
+}
+
+// BucketObject is one object returned by listing a bucket.
+type BucketObject struct {
+	Key          string     `json:"key"`
+	SizeBytes    int64      `json:"size_bytes"`
+	ETag         string     `json:"etag"`
+	ContentType  string     `json:"content_type"`
+	LastModified *time.Time `json:"last_modified"`
+	StorageClass string     `json:"storage_class"`
+	VersionID    string     `json:"version_id"`
+	IsLatest     bool       `json:"is_latest"`
+	Public       bool       `json:"public"`
+	ObjectPublic bool       `json:"object_public"`
+	// One of: private, object, bucket_prefix.
+	PublicSource string `json:"public_source"`
+	PublicURL    string `json:"public_url"`
+}
+
+// BucketObjectVersion is one object version or delete marker returned when listing with Versions: true.
+type BucketObjectVersion struct {
+	Key            string     `json:"key"`
+	VersionID      string     `json:"version_id"`
+	IsLatest       bool       `json:"is_latest"`
+	IsDeleteMarker bool       `json:"is_delete_marker"`
+	SizeBytes      int64      `json:"size_bytes"`
+	ETag           string     `json:"etag"`
+	LastModified   *time.Time `json:"last_modified"`
+	StorageClass   string     `json:"storage_class"`
+}
+
+// BucketObjectList is a page of folders and objects (or versions when listed with Versions: true).
+type BucketObjectList struct {
+	Prefix              string                `json:"prefix"`
+	Folders             []string              `json:"folders"`
+	Objects             []BucketObject        `json:"objects"`
+	NextCursor          string                `json:"next_cursor"`
+	Versions            []BucketObjectVersion `json:"versions"`
+	NextKeyMarker       string                `json:"next_key_marker"`
+	NextVersionIDMarker string                `json:"next_version_id_marker"`
+	IsTruncated         bool                  `json:"is_truncated"`
+}
+
+// StorageTag is a key-value tag on a bucket or object.
+type StorageTag struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// BucketObjectMeta holds properties, metadata, tags and object-lock status for one object.
+type BucketObjectMeta struct {
+	Key                string            `json:"key"`
+	SizeBytes          int64             `json:"size_bytes"`
+	ETag               string            `json:"etag"`
+	ContentType        string            `json:"content_type"`
+	CacheControl       string            `json:"cache_control"`
+	ContentDisposition string            `json:"content_disposition"`
+	LastModified       *time.Time        `json:"last_modified"`
+	StorageClass       string            `json:"storage_class"`
+	VersionID          string            `json:"version_id"`
+	Metadata           map[string]string `json:"metadata"`
+	Tags               []StorageTag      `json:"tags"`
+	RetentionMode      string            `json:"retention_mode"`
+	RetainUntil        *time.Time        `json:"retain_until"`
+	LegalHold          bool              `json:"legal_hold"`
+	Public             bool              `json:"public"`
+	ObjectPublic       bool              `json:"object_public"`
+	// One of: private, object, bucket_prefix.
+	PublicSource string `json:"public_source"`
+	PublicURL    string `json:"public_url"`
+}
+
+// PresignObjectDownloadRequest mints a short-lived direct download URL.
+type PresignObjectDownloadRequest struct {
+	Key              string  `json:"key"`
+	VersionID        *string `json:"version_id,omitempty"`
+	Inline           *bool   `json:"inline,omitempty"`
+	ExpiresInSeconds *int    `json:"expires_in_seconds,omitempty"`
+}
+
+// PresignObjectUploadRequest mints a short-lived direct upload URL.
+type PresignObjectUploadRequest struct {
+	Key         string  `json:"key"`
+	ContentType *string `json:"content_type,omitempty"`
+}
+
+// PresignedURL is a direct transfer URL or proxy indicator.
+type PresignedURL struct {
+	Direct           bool   `json:"direct"`
+	URL              string `json:"url"`
+	ExpiresInSeconds int    `json:"expires_in_seconds"`
+}
+
+// UploadedBucketObject summarizes an uploaded object.
+type UploadedBucketObject struct {
+	Key          string     `json:"key"`
+	SizeBytes    int64      `json:"size_bytes"`
+	ETag         string     `json:"etag"`
+	ContentType  string     `json:"content_type"`
+	LastModified *time.Time `json:"last_modified"`
+	VersionID    string     `json:"version_id"`
+	Public       bool       `json:"public"`
+	ObjectPublic bool       `json:"object_public"`
+	// One of: private, object, bucket_prefix.
+	PublicSource string `json:"public_source"`
+	PublicURL    string `json:"public_url"`
+}
+
+// CreateBucketFolderRequest creates a folder prefix marker in a bucket.
+type CreateBucketFolderRequest struct {
+	Prefix string `json:"prefix"`
+}
+
+// BucketFolder is the created folder prefix.
+type BucketFolder struct {
+	Prefix string `json:"prefix"`
+}
+
+// CopyBucketObjectRequest copies, renames or replaces metadata on an object within a bucket.
+type CopyBucketObjectRequest struct {
+	SourceKey          string             `json:"source_key"`
+	DestinationKey     string             `json:"destination_key"`
+	DeleteSource       *bool              `json:"delete_source,omitempty"`
+	ReplaceMetadata    *bool              `json:"replace_metadata,omitempty"`
+	ContentType        *string            `json:"content_type,omitempty"`
+	CacheControl       *string            `json:"cache_control,omitempty"`
+	ContentDisposition *string            `json:"content_disposition,omitempty"`
+	Metadata           *map[string]string `json:"metadata,omitempty"`
+}
+
+// BucketObjectSummary summarizes a copied or completed multipart object.
+type BucketObjectSummary struct {
+	Key          string     `json:"key"`
+	ETag         string     `json:"etag"`
+	VersionID    string     `json:"version_id"`
+	LastModified *time.Time `json:"last_modified"`
+	Public       bool       `json:"public"`
+	ObjectPublic bool       `json:"object_public"`
+	// One of: private, object, bucket_prefix.
+	PublicSource string `json:"public_source"`
+	PublicURL    string `json:"public_url"`
+}
+
+// DeleteBucketObjectItem identifies one object or version to delete.
+type DeleteBucketObjectItem struct {
+	Key       string  `json:"key"`
+	VersionID *string `json:"version_id,omitempty"`
+}
+
+// DeleteBucketObjectsRequest deletes objects, versions or all objects under a folder prefix.
+type DeleteBucketObjectsRequest struct {
+	Items           []DeleteBucketObjectItem `json:"items,omitempty"`
+	RecursivePrefix *string                  `json:"recursive_prefix,omitempty"`
+}
+
+// DeleteBucketObjectFailure describes an object that could not be deleted.
+type DeleteBucketObjectFailure struct {
+	Key       string `json:"key"`
+	VersionID string `json:"version_id"`
+	Code      string `json:"code"`
+	Locked    bool   `json:"locked"`
+}
+
+// DeleteBucketObjectsResult summarizes a batch delete.
+type DeleteBucketObjectsResult struct {
+	Deleted int                         `json:"deleted"`
+	Failed  []DeleteBucketObjectFailure `json:"failed"`
+}
+
+// PutBucketObjectTagsRequest replaces key-value tags on an object or version.
+type PutBucketObjectTagsRequest struct {
+	Key       string       `json:"key"`
+	VersionID *string      `json:"version_id,omitempty"`
+	Tags      []StorageTag `json:"tags"`
+}
+
+// StorageTags wraps a list of key-value tags.
+type StorageTags struct {
+	Tags []StorageTag `json:"tags"`
+}
+
+// PutBucketObjectLockRequest sets retention or legal hold on an object version.
+type PutBucketObjectLockRequest struct {
+	Key       string  `json:"key"`
+	VersionID *string `json:"version_id,omitempty"`
+	// One of: GOVERNANCE, COMPLIANCE.
+	RetentionMode    *string    `json:"retention_mode,omitempty"`
+	RetainUntil      *time.Time `json:"retain_until,omitempty"`
+	BypassGovernance *bool      `json:"bypass_governance,omitempty"`
+	LegalHold        *bool      `json:"legal_hold,omitempty"`
+}
+
+// PutBucketObjectLockResult confirms an object lock update.
+type PutBucketObjectLockResult struct {
+	OK bool `json:"ok"`
+}
+
+// PutBucketObjectVisibilityRequest toggles public or private read access on an individual object.
+type PutBucketObjectVisibilityRequest struct {
+	Key       string  `json:"key"`
+	VersionID *string `json:"version_id,omitempty"`
+	Public    bool    `json:"public"`
+}
+
+// BucketObjectVisibility reports an object's effective visibility after an update.
+type BucketObjectVisibility struct {
+	Key          string `json:"key"`
+	Public       bool   `json:"public"`
+	ObjectPublic bool   `json:"object_public"`
+	// One of: private, object, bucket_prefix.
+	PublicSource string `json:"public_source"`
+	PublicURL    string `json:"public_url"`
+}
+
+// StartMultipartUploadRequest initiates a multipart upload session.
+type StartMultipartUploadRequest struct {
+	Key                string             `json:"key"`
+	ContentType        *string            `json:"content_type,omitempty"`
+	CacheControl       *string            `json:"cache_control,omitempty"`
+	ContentDisposition *string            `json:"content_disposition,omitempty"`
+	Metadata           *map[string]string `json:"metadata,omitempty"`
+	TotalSize          *int64             `json:"total_size,omitempty"`
+	Public             *bool              `json:"public,omitempty"`
+}
+
+// MultipartUploadSession is returned when starting a multipart upload.
+type MultipartUploadSession struct {
+	UploadID      string `json:"upload_id"`
+	Mode          string `json:"mode"`
+	PartSizeBytes int64  `json:"part_size_bytes"`
+}
+
+// SignMultipartPartRequest signs a direct upload URL for one multipart part.
+type SignMultipartPartRequest struct {
+	Key        string `json:"key"`
+	UploadID   string `json:"upload_id"`
+	PartNumber int    `json:"part_number"`
+}
+
+// MultipartPart identifies an uploaded part by number and ETag.
+type MultipartPart struct {
+	PartNumber int    `json:"part_number"`
+	ETag       string `json:"etag"`
+}
+
+// CompleteMultipartUploadRequest assembles uploaded parts into the final object.
+type CompleteMultipartUploadRequest struct {
+	Key      string          `json:"key"`
+	UploadID string          `json:"upload_id"`
+	Parts    []MultipartPart `json:"parts"`
+}
+
+// AbortMultipartUploadRequest cancels an in-progress multipart upload.
+type AbortMultipartUploadRequest struct {
+	Key      string `json:"key"`
+	UploadID string `json:"upload_id"`
+}
+
+// BucketCORSRule is one cross-origin resource sharing rule on a bucket.
+type BucketCORSRule struct {
+	ID             string   `json:"id"`
+	AllowedOrigins []string `json:"allowed_origins"`
+	// Each method is one of: GET, PUT, POST, DELETE, HEAD.
+	AllowedMethods []string `json:"allowed_methods"`
+	AllowedHeaders []string `json:"allowed_headers"`
+	ExposeHeaders  []string `json:"expose_headers"`
+	MaxAgeSeconds  int      `json:"max_age_seconds"`
+}
+
+// BucketCORSConfig holds a bucket's CORS rules.
+type BucketCORSConfig struct {
+	Rules []BucketCORSRule `json:"rules"`
+}
+
+// BucketLifecycleRule is one expiration or cleanup rule on a bucket.
+type BucketLifecycleRule struct {
+	ID                           string `json:"id"`
+	Prefix                       string `json:"prefix"`
+	Enabled                      bool   `json:"enabled"`
+	ExpirationDays               int    `json:"expiration_days"`
+	NoncurrentExpirationDays     int    `json:"noncurrent_expiration_days"`
+	AbortIncompleteMultipartDays int    `json:"abort_incomplete_multipart_days"`
+	ExpiredObjectDeleteMarker    bool   `json:"expired_object_delete_marker"`
+}
+
+// BucketLifecycleConfig holds a bucket's lifecycle rules.
+type BucketLifecycleConfig struct {
+	Rules []BucketLifecycleRule `json:"rules"`
+}
+
+// BucketTagsConfig holds a bucket's key-value tags.
+type BucketTagsConfig struct {
+	Tags []StorageTag `json:"tags"`
+}
+
+// BucketObjectLockConfig holds default object-lock retention settings for a bucket.
+type BucketObjectLockConfig struct {
+	Enabled bool `json:"enabled"`
+	// One of: GOVERNANCE, COMPLIANCE.
+	Mode  string `json:"mode"`
+	Days  int    `json:"days"`
+	Years int    `json:"years"`
 }

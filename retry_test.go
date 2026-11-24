@@ -105,14 +105,45 @@ func TestRoutesThatDoNotReplayAreNotRetried(t *testing.T) {
 		},
 		"DELETE /ssh-keys/{id}":        func(c *Client) error { return c.SSHKeys.Delete(ctx, "sshk_1") },
 		"POST /instances/{id}/console": func(c *Client) error { _, err := c.Instances.OpenConsole(ctx, "vm_1"); return err },
-		"POST /webhooks/{id}/test":     func(c *Client) error { _, err := c.Webhooks.Test(ctx, "wh_1"); return err },
-		"DELETE /webhooks/{id}":        func(c *Client) error { return c.Webhooks.Delete(ctx, "wh_1") },
+		"POST /instances/{id}/address-rotation/rotate": func(c *Client) error {
+			_, err := c.Instances.RotateDynamicIP(ctx, "vm_1")
+			return err
+		},
+		"POST /webhooks/{id}/test": func(c *Client) error { _, err := c.Webhooks.Test(ctx, "wh_1"); return err },
+		"DELETE /webhooks/{id}":    func(c *Client) error { return c.Webhooks.Delete(ctx, "wh_1") },
 		"POST /webhooks/{id}/rotate-secret": func(c *Client) error {
 			_, err := c.Webhooks.RotateSecret(ctx, "wh_1")
 			return err
 		},
 		"POST /webhooks/{id}/deliveries/{id}/redeliver": func(c *Client) error {
 			_, err := c.Webhooks.Redeliver(ctx, "wh_1", "whd_1")
+			return err
+		},
+		"POST /object-storage/keys": func(c *Client) error {
+			_, err := c.ObjectStorage.CreateKey(ctx, CreateObjectStorageKeyRequest{Name: "k"})
+			return err
+		},
+		"DELETE /object-storage/keys/{id}": func(c *Client) error {
+			return c.ObjectStorage.RevokeKey(ctx, "osk_1")
+		},
+		"POST /buckets/{id}/empty": func(c *Client) error {
+			_, err := c.Buckets.Empty(ctx, "bkt_1")
+			return err
+		},
+		"POST /buckets/{id}/objects/copy": func(c *Client) error {
+			_, err := c.Buckets.CopyObject(ctx, "bkt_1", CopyBucketObjectRequest{SourceKey: "a", DestinationKey: "b"})
+			return err
+		},
+		"POST /buckets/{id}/objects/delete": func(c *Client) error {
+			_, err := c.Buckets.DeleteObjects(ctx, "bkt_1", DeleteBucketObjectsRequest{Items: []DeleteBucketObjectItem{{Key: "a"}}})
+			return err
+		},
+		"POST /buckets/{id}/objects/multipart/start": func(c *Client) error {
+			_, err := c.Buckets.StartMultipartUpload(ctx, "bkt_1", StartMultipartUploadRequest{Key: "a"})
+			return err
+		},
+		"POST /buckets/{id}/objects/multipart/complete": func(c *Client) error {
+			_, err := c.Buckets.CompleteMultipartUpload(ctx, "bkt_1", CompleteMultipartUploadRequest{Key: "a", UploadID: "u_1"})
 			return err
 		},
 	}
@@ -159,6 +190,24 @@ func TestNetworkErrorsAreRetried(t *testing.T) {
 	acc, err := c.Instances.Reboot(context.Background(), "vm_1")
 	if err != nil || acc.OperationID != "op_1" || n.Load() != 2 {
 		t.Fatalf("err %v, %d requests", err, n.Load())
+	}
+}
+
+func TestNoReplayRouteDoesNotRetryTransportError(t *testing.T) {
+	var n atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		hj, _ := w.(http.Hijacker)
+		conn, _, _ := hj.Hijack()
+		conn.Close() // drop the connection without an answer
+	}))
+	defer srv.Close()
+	c := newTestClientAt(t, srv.URL)
+	if _, err := c.Instances.RotateDynamicIP(context.Background(), "vm_1"); err == nil {
+		t.Fatal("expected transport error, got nil")
+	}
+	if n.Load() != 1 {
+		t.Fatalf("POST /instances/{id}/address-rotation/rotate was retried on transport error (%d requests, want 1)", n.Load())
 	}
 }
 

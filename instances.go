@@ -318,6 +318,46 @@ func (s *InstancesService) RevokeSSHAccess(ctx context.Context, instanceID strin
 	return &out, nil
 }
 
+// GetDynamicIP gets an instance's Dynamic IP configuration and status: GET /instances/{instance_id}/address-rotation.
+// Scope: read.
+func (s *InstancesService) GetDynamicIP(ctx context.Context, instanceID string, opts ...RequestOption) (*DynamicIP, error) {
+	var out DynamicIP
+	if err := s.c.Do(ctx, "GET", "/instances/"+url.PathEscape(instanceID)+"/address-rotation", nil, nil, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetDynamicIP enables or updates Dynamic IP on an instance: PUT /instances/{instance_id}/address-rotation.
+// Scope: write.
+func (s *InstancesService) SetDynamicIP(ctx context.Context, instanceID string, req PutDynamicIPRequest, opts ...RequestOption) (*DynamicIP, error) {
+	var out DynamicIP
+	if err := s.c.Do(ctx, "PUT", "/instances/"+url.PathEscape(instanceID)+"/address-rotation", nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DisableDynamicIP disables Dynamic IP on an instance: DELETE /instances/{instance_id}/address-rotation.
+// Scope: write.
+func (s *InstancesService) DisableDynamicIP(ctx context.Context, instanceID string, opts ...RequestOption) (*DynamicIP, error) {
+	var out DynamicIP
+	if err := s.c.Do(ctx, "DELETE", "/instances/"+url.PathEscape(instanceID)+"/address-rotation", nil, nil, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RotateDynamicIP rotates an instance's Dynamic IP immediately: POST /instances/{instance_id}/address-rotation/rotate.
+// Scope: write.
+func (s *InstancesService) RotateDynamicIP(ctx context.Context, instanceID string, opts ...RequestOption) (*DynamicIP, error) {
+	var out DynamicIP
+	if err := s.c.Do(ctx, "POST", "/instances/"+url.PathEscape(instanceID)+"/address-rotation/rotate", nil, nil, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ListOrders lists instance orders: GET /instance-orders.
 // Scope: read.
 func (s *InstancesService) ListOrders(ctx context.Context, params *PageParams, opts ...RequestOption) (*Page[InstanceOrder], error) {

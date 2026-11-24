@@ -28,7 +28,7 @@ import (
 )
 
 // Version is this SDK's version. It goes into the default User-Agent.
-const Version = "0.4.0"
+const Version = "0.5.0"
 
 // DefaultBaseURL is the production public API. Every path is relative to it.
 const DefaultBaseURL = "https://api.pantechdynamics.com/public/v1"
@@ -80,6 +80,8 @@ type Client struct {
 	Registry            *RegistryService
 	IAM                 *IAMService
 	Certificates        *CertificatesService
+	ObjectStorage       *ObjectStorageService
+	Buckets             *BucketsService
 	Operations          *OperationsService
 
 	baseURL    string
@@ -210,6 +212,8 @@ func NewClient(opts ...Option) (*Client, error) {
 	c.Registry = &RegistryService{c}
 	c.IAM = &IAMService{c}
 	c.Certificates = &CertificatesService{c}
+	c.ObjectStorage = &ObjectStorageService{c}
+	c.Buckets = &BucketsService{c}
 	c.Operations = &OperationsService{c}
 	return c, nil
 }
@@ -260,16 +264,21 @@ func WithNoRetry() RequestOption {
 // uses, and it is exported for calls the typed services do not cover.
 //
 // path is relative to the base URL, such as "/instances" or
-// "/instances/vm_123/start"; query may be nil. body is nil or a value that
-// marshals to JSON (a json.RawMessage is sent as is). out is nil or a pointer:
-// a 2xx JSON body is decoded into it, and a *[]byte receives the raw body.
+// "/instances/vm_123/start"; query may be nil. body is nil, a raw []byte
+// (sent as application/octet-stream unless overridden with WithRequestHeader),
+// a json.RawMessage (sent as is), or a value that marshals to JSON. out is nil
+// or a pointer: a 2xx JSON body is decoded into it, and a *[]byte receives the
+// raw body.
 //
 // POST, PUT, PATCH and DELETE carry an Idempotency-Key, the same one on every
 // retry. Network errors, 429 (after Retry-After), 500, 502, 503 and 504 are
 // retried with jittered backoff, except on the routes the API does not replay
-// (creating or deleting an SSH key, opening an instance console, and testing,
-// deleting, rotating the secret of or redelivering a webhook), which are
-// retried only on 429. A non-2xx answer is returned as an *Error.
+// (creating or deleting an SSH key, opening an instance console, rotating an
+// instance's Dynamic IP, testing, deleting, rotating the secret of or
+// redelivering a webhook, and non-replaying object storage actions such as
+// creating or revoking an access key, emptying a bucket, copying or deleting
+// objects, or starting/completing a multipart upload), which are retried only
+// on 429. A non-2xx answer is returned as an *Error.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body, out any, opts ...RequestOption) error {
 	var ro requestOptions
 	for _, opt := range opts {
@@ -280,7 +289,7 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		path = "/" + path
 	}
 
-	payload, err := encodeBody(body)
+	payload, contentType, err := encodeBody(body)
 	if err != nil {
 		return err
 	}
@@ -298,7 +307,7 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	replays := replaysOnRetry(method, path)
 
 	for attempt := 0; ; attempt++ {
-		res, err := c.send(ctx, method, target, payload, key, ro.headers)
+		res, err := c.send(ctx, method, target, payload, contentType, key, ro.headers)
 		if err != nil && ctx.Err() != nil {
 			// Cancelled or out of time: say so, not "connection failed".
 			return fmt.Errorf("pantech: %s %s: %w", method, path, ctx.Err())
@@ -333,8 +342,8 @@ type response struct {
 
 // send makes one attempt and reads the whole body, so the connection is free
 // before the retry loop decides what to do.
-func (c *Client) send(ctx context.Context, method, target string, payload []byte, idempotencyKey string, extra http.Header) (*response, error) {
-	req, err := c.newRequest(ctx, method, target, payload, idempotencyKey, extra)
+func (c *Client) send(ctx context.Context, method, target string, payload []byte, contentType, idempotencyKey string, extra http.Header) (*response, error) {
+	req, err := c.newRequest(ctx, method, target, payload, contentType, idempotencyKey, extra)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +360,7 @@ func (c *Client) send(ctx context.Context, method, target string, payload []byte
 }
 
 // newRequest builds a fresh request per attempt, since a body is read once.
-func (c *Client) newRequest(ctx context.Context, method, target string, payload []byte, idempotencyKey string, extra http.Header) (*http.Request, error) {
+func (c *Client) newRequest(ctx context.Context, method, target string, payload []byte, contentType, idempotencyKey string, extra http.Header) (*http.Request, error) {
 	var body io.Reader
 	if payload != nil {
 		body = bytes.NewReader(payload)
@@ -365,8 +374,8 @@ func (c *Client) newRequest(ctx context.Context, method, target string, payload 
 	if c.userAgent != "" {
 		req.Header.Set("User-Agent", c.userAgent)
 	}
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if idempotencyKey != "" {
 		req.Header.Set("Idempotency-Key", idempotencyKey)
@@ -393,18 +402,23 @@ func readCapped(r io.Reader) ([]byte, error) {
 	return data, nil
 }
 
-func encodeBody(body any) ([]byte, error) {
+func encodeBody(body any) ([]byte, string, error) {
 	switch b := body.(type) {
 	case nil:
-		return nil, nil
+		return nil, "", nil
 	case json.RawMessage:
-		return b, nil
+		return b, "application/json", nil
+	case []byte:
+		if b == nil {
+			b = []byte{}
+		}
+		return b, "application/octet-stream", nil
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("pantech: encoding the request body: %w", err)
+		return nil, "", fmt.Errorf("pantech: encoding the request body: %w", err)
 	}
-	return payload, nil
+	return payload, "application/json", nil
 }
 
 func decodeBody(body []byte, out any) error {

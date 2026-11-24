@@ -5,6 +5,29 @@ adds a line under **Unreleased**. Releasing renames that heading to the version 
 (`## v0.2.0 — 2026-11-02`); a push to main whose newest heading is an untagged version tags it and
 publishes a GitHub release with that section as its notes.
 
+## Unreleased
+
+## v0.5.0 — 2026-11-24
+
+### Added
+
+- Dynamic IP on instances: `Instances.GetDynamicIP`, `SetDynamicIP`, `DisableDynamicIP` and
+  `RotateDynamicIP`, plus `CreateInstanceRequest.DynamicIP` (`CreateInstanceDynamicIP`) to enable
+  Dynamic IP at creation time, with `DynamicIP`, `DynamicIPEvent` and `PutDynamicIPRequest`.
+  `RotateDynamicIP` is treated as non-replaying and is retried only on `429`.
+- Object Storage (`c.ObjectStorage` and `c.Buckets`): status (`GetStatus`), hourly transfer and
+  request usage (`GetUsage`), S3 access keys (`ListKeys`, `CreateKey`, `RevokeKey`;
+  `CreatedObjectStorageKey` hides `SecretAccessKey` from `fmt`), buckets (`List`, `Create`, `Get`,
+  `Update`, `Delete` with `DeleteBucketParams{Force}`, `GetStats`, `Empty`), bucket rules
+  (`GetCORS`/`PutCORS`, `GetLifecycle`/`PutLifecycle`, `GetTags`/`PutTags`,
+  `GetObjectLock`/`PutObjectLockConfig`), object operations (`ListObjects`, `GetObjectMeta`,
+  `DownloadObject`, `PresignDownload`, `UploadObject`, `PresignUpload`, `CreateFolder`,
+  `CopyObject`, `DeleteObjects`, `PutObjectTags`, `PutObjectLock`, `PutObjectVisibility`), and
+  multipart uploads (`StartMultipartUpload`, `SignMultipartPart`, `UploadMultipartPart`,
+  `CompleteMultipartUpload`, `AbortMultipartUpload`).
+- `Client.Do` supports raw `[]byte` request bodies (sending `Content-Type: application/octet-stream`
+  unless overridden via `WithRequestHeader`).
+
 ## v0.4.0 — 2026-11-10
 
 ### Changed

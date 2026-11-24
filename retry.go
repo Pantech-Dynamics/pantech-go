@@ -28,10 +28,18 @@ var noReplay = []struct {
 	{http.MethodPost, regexp.MustCompile(`^/ssh-keys$`)},
 	{http.MethodDelete, regexp.MustCompile(`^/ssh-keys/[^/]+$`)},
 	{http.MethodPost, regexp.MustCompile(`^/instances/[^/]+/console$`)},
+	{http.MethodPost, regexp.MustCompile(`^/instances/[^/]+/address-rotation/rotate$`)},
 	{http.MethodPost, regexp.MustCompile(`^/webhooks/[^/]+/test$`)},
 	{http.MethodDelete, regexp.MustCompile(`^/webhooks/[^/]+$`)},
 	{http.MethodPost, regexp.MustCompile(`^/webhooks/[^/]+/rotate-secret$`)},
 	{http.MethodPost, regexp.MustCompile(`^/webhooks/[^/]+/deliveries/[^/]+/redeliver$`)},
+	{http.MethodPost, regexp.MustCompile(`^/object-storage/keys$`)},
+	{http.MethodDelete, regexp.MustCompile(`^/object-storage/keys/[^/]+$`)},
+	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/empty$`)},
+	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/copy$`)},
+	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/delete$`)},
+	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/multipart/start$`)},
+	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/multipart/complete$`)},
 }
 
 // replaysOnRetry reports whether a retried request is answered from the
