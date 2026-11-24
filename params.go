@@ -421,3 +421,218 @@ func (p *ListCertificatesParams) values() url.Values {
 	}
 	return v
 }
+
+// ObjectStorageUsageParams are the query parameters of object storage usage. Zero values are left out.
+type ObjectStorageUsageParams struct {
+	// One of: 24h, 7d, 30d.
+	Range string
+}
+
+func (p *ObjectStorageUsageParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Range != "" {
+		v.Set("range", p.Range)
+	}
+	return v
+}
+
+// ListObjectStorageKeysParams are the query parameters of list object storage keys. Zero values are left out.
+type ListObjectStorageKeysParams struct {
+	// Region code, e.g. `af-abj`. Defaults to the region object storage is offered in.
+	Region string
+}
+
+func (p *ListObjectStorageKeysParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Region != "" {
+		v.Set("region", p.Region)
+	}
+	return v
+}
+
+// DeleteBucketParams are the query parameters of delete bucket. Zero values are left out.
+type DeleteBucketParams struct {
+	// Delete the bucket even though it holds objects, which are removed with it.
+	Force bool
+}
+
+func (p *DeleteBucketParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Force {
+		v.Set("force", "true")
+	}
+	return v
+}
+
+// ListBucketObjectsParams are the query parameters of list bucket objects. Zero values are left out.
+type ListBucketObjectsParams struct {
+	// Limit results to keys starting with this prefix.
+	Prefix string
+	// Folder delimiter (defaults to `/` when nil; pass Ptr("") for a flat listing).
+	Delimiter *string
+	// Search query across keys in the bucket.
+	Q string
+	// Pagination cursor returned as `next_cursor`.
+	Cursor string
+	// Maximum entries per page (1 to 1000).
+	Limit int
+	// When true, list object versions and delete markers instead of current objects.
+	Versions bool
+	// Key marker for versioned pagination (`next_key_marker`).
+	KeyMarker string
+	// Version ID marker for versioned pagination (`next_version_id_marker`).
+	VersionIDMarker string
+}
+
+func (p *ListBucketObjectsParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Prefix != "" {
+		v.Set("prefix", p.Prefix)
+	}
+	if p.Delimiter != nil {
+		v.Set("delimiter", *p.Delimiter)
+	}
+	if p.Q != "" {
+		v.Set("q", p.Q)
+	}
+	if p.Cursor != "" {
+		v.Set("cursor", p.Cursor)
+	}
+	if p.Limit != 0 {
+		v.Set("limit", strconv.Itoa(p.Limit))
+	}
+	if p.Versions {
+		v.Set("versions", "true")
+	}
+	if p.KeyMarker != "" {
+		v.Set("key_marker", p.KeyMarker)
+	}
+	if p.VersionIDMarker != "" {
+		v.Set("version_id_marker", p.VersionIDMarker)
+	}
+	return v
+}
+
+// BucketObjectMetaParams are the query parameters of get bucket object metadata.
+type BucketObjectMetaParams struct {
+	Key       string
+	VersionID string
+}
+
+func (p *BucketObjectMetaParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Key != "" {
+		v.Set("key", p.Key)
+	}
+	if p.VersionID != "" {
+		v.Set("version_id", p.VersionID)
+	}
+	return v
+}
+
+// DownloadBucketObjectParams are the query parameters of download bucket object.
+type DownloadBucketObjectParams struct {
+	Key       string
+	VersionID string
+	Inline    bool
+}
+
+func (p *DownloadBucketObjectParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Key != "" {
+		v.Set("key", p.Key)
+	}
+	if p.VersionID != "" {
+		v.Set("version_id", p.VersionID)
+	}
+	if p.Inline {
+		v.Set("inline", "true")
+	}
+	return v
+}
+
+// UploadBucketObjectParams are the query parameters and optional object headers of upload bucket object.
+type UploadBucketObjectParams struct {
+	Key                string
+	ContentType        string
+	CacheControl       string
+	ContentDisposition string
+	Public             bool
+	Metadata           map[string]string
+}
+
+func (p *UploadBucketObjectParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Key != "" {
+		v.Set("key", p.Key)
+	}
+	return v
+}
+
+func (p *UploadBucketObjectParams) requestOptions() []RequestOption {
+	if p == nil {
+		return nil
+	}
+	var opts []RequestOption
+	if p.ContentType != "" {
+		opts = append(opts, WithRequestHeader("Content-Type", p.ContentType))
+	}
+	if p.CacheControl != "" {
+		opts = append(opts, WithRequestHeader("X-Object-Cache-Control", p.CacheControl))
+	}
+	if p.ContentDisposition != "" {
+		opts = append(opts, WithRequestHeader("X-Object-Content-Disposition", p.ContentDisposition))
+	}
+	if p.Public {
+		opts = append(opts, WithRequestHeader("X-Object-Public", "true"))
+	}
+	for k, v := range p.Metadata {
+		opts = append(opts, WithRequestHeader("X-Object-Meta-"+k, v))
+	}
+	return opts
+}
+
+// UploadMultipartPartParams are the query parameters of upload multipart part.
+type UploadMultipartPartParams struct {
+	Key        string
+	UploadID   string
+	PartNumber int
+}
+
+func (p *UploadMultipartPartParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.Key != "" {
+		v.Set("key", p.Key)
+	}
+	if p.UploadID != "" {
+		v.Set("upload_id", p.UploadID)
+	}
+	if p.PartNumber != 0 {
+		v.Set("part_number", strconv.Itoa(p.PartNumber))
+	}
+	return v
+}

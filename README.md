@@ -5,9 +5,10 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 The official Go SDK for the [Pantech Dynamics public API](https://docs.pantechdynamics.com/api):
-instances, VPC networks, firewalls, public IPs, load balancers, volumes, snapshots, managed
-databases, managed Kubernetes, DNS, domains, a private container registry, teams and access policies, TLS certificates, SSH keys, webhooks, billing, usage, and moving from
-another cloud.
+instances (including Dynamic IP), VPC networks, firewalls, public IPs, load balancers, volumes,
+snapshots, managed databases, managed Kubernetes, S3-compatible object storage, DNS, domains, a
+private container registry, teams and access policies, TLS certificates, SSH keys, webhooks,
+billing, usage, and moving from another cloud.
 
 - Every operation in the public API has a typed method, except agent sessions, which answer only
   AI apps connected through Pantech's MCP server.
@@ -85,9 +86,10 @@ a `Client` does not show it. `c.Me.Get(ctx)` describes the key; `c.Me.Revoke(ctx
 
 `c.Instances`, `c.Networks`, `c.Subnets`, `c.FirewallRules`, `c.PublicIPs`,
 `c.PortForwardingRules`, `c.SecurityGroups`, `c.LoadBalancers`, `c.Volumes`, `c.Snapshots`,
-`c.Databases`, `c.Kubernetes`, `c.SSHKeys`, `c.Webhooks`, `c.Migrate`, `c.DNS`, `c.Domains`, `c.Registry`, `c.IAM`, `c.Certificates`,
-`c.Operations`, `c.Catalog` (regions, plans, images, disk offerings, database engines, Kubernetes versions, price estimates),
-`c.Billing` (credit, receipts, usage) and `c.Me`.
+`c.Databases`, `c.Kubernetes`, `c.ObjectStorage`, `c.Buckets`, `c.SSHKeys`, `c.Webhooks`,
+`c.Migrate`, `c.DNS`, `c.Domains`, `c.Registry`, `c.IAM`, `c.Certificates`, `c.Operations`,
+`c.Catalog` (regions, plans, images, disk offerings, database engines, Kubernetes versions, price
+estimates), `c.Billing` (credit, receipts, usage) and `c.Me`.
 
 Request types follow the API's field names. Optional fields are pointers, and a nil field is not
 sent; `pantech.Ptr` sets one inline:
@@ -170,6 +172,34 @@ or follow it over Server-Sent Events with `c.Operations.Stream(ctx, id)`.
 A new instance or database is an order, paid first: `c.Instances.WaitForOrder` and
 `c.Databases.WaitForOrder` wait until it is `provisioned` and return an `*pantech.OrderError` when
 it ends `payment_failed` or `failed`.
+
+## Dynamic IP
+
+Instances can enable **Dynamic IP** to rotate their outbound public IP address on a schedule
+(`every_12_hours`, `daily`, `weekly`, `monthly`) or on demand:
+
+```go
+// Enable at instance creation:
+order, err := c.Instances.Create(ctx, pantech.CreateInstanceRequest{
+	Name:      "scraper-1",
+	PlanSlug:  "standard-1",
+	ImageSlug: "ubuntu-24-04",
+	SSHKeyID:  "sshk_…",
+	DynamicIP: &pantech.CreateInstanceDynamicIP{
+		Schedule:    "daily",
+		Connections: pantech.Ptr("keep"),
+	},
+})
+
+// Or manage Dynamic IP on an existing instance:
+dip, err := c.Instances.SetDynamicIP(ctx, "vm_…", pantech.PutDynamicIPRequest{
+	Schedule: "every_12_hours",
+	OnDemand: pantech.Ptr(true),
+})
+dip, err = c.Instances.GetDynamicIP(ctx, "vm_…")
+dip, err = c.Instances.RotateDynamicIP(ctx, "vm_…")
+dip, err = c.Instances.DisableDynamicIP(ctx, "vm_…")
+```
 
 ## Move from another cloud
 
@@ -333,6 +363,36 @@ os.WriteFile("privkey.pem", []byte(exp.PrivateKeyPEM), 0o600)
 `ExportedCertificate`, `ImportCertificateRequest` and `ReimportCertificateRequest` never print
 their private key with `fmt`. `Import` and `Reimport` bring a certificate bought elsewhere.
 
+## Object storage
+
+`c.ObjectStorage` checks enablement, hourly transfer/request usage, and S3 access keys; `c.Buckets`
+manages buckets, bucket rules (CORS, lifecycle, tags, object lock), object uploads/downloads,
+presigned URLs and multipart uploads.
+
+```go
+st, err := c.ObjectStorage.GetStatus(ctx)
+key, err := c.ObjectStorage.CreateKey(ctx, pantech.CreateObjectStorageKeyRequest{
+	Name:    "backups",
+	Buckets: pantech.Ptr([]string{"assets"}),
+})
+// key.SecretAccessKey is returned once and never prints with fmt.
+
+bkt, err := c.Buckets.Create(ctx, pantech.CreateBucketRequest{
+	Name:       "assets",
+	Versioning: pantech.Ptr(true),
+})
+_, err = c.Operations.Wait(ctx, bkt.OperationID, nil)
+
+_, err = c.Buckets.UploadObject(ctx, bkt.ID, &pantech.UploadBucketObjectParams{
+	Key:         "hello.txt",
+	ContentType: "text/plain",
+}, []byte("hello world"))
+
+data, err := c.Buckets.DownloadObject(ctx, bkt.ID, &pantech.DownloadBucketObjectParams{
+	Key: "hello.txt",
+})
+```
+
 ## Webhooks
 
 Verify every delivery against the raw body before acting on it:
@@ -369,8 +429,10 @@ Every typed method, and `Do`, takes these per-call options: `WithIdempotencyKey(
 Network errors, `429`, `500`, `502`, `503` and `504` are retried up to 3 times with jittered
 exponential backoff (0.5 s, 1 s, 2 s… up to 8 s), and a `Retry-After` is honoured (up to 60 s).
 Routes the API does not replay are retried only on `429`, which the API refuses before acting:
-creating or deleting an SSH key, opening an instance console, and testing, deleting, rotating the
-secret of or redelivering a webhook. `WithNoRetry()` sends a call once. Cancelling the
+creating or deleting an SSH key, opening an instance console, rotating an instance's Dynamic IP,
+testing, deleting, rotating the secret of or redelivering a webhook, and non-replaying object
+storage writes (creating or revoking an access key, emptying a bucket, copying or deleting objects,
+and starting or completing a multipart upload). `WithNoRetry()` sends a call once. Cancelling the
 context stops a call and its retries at once.
 
 ## Development

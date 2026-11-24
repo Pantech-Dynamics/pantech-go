@@ -24,7 +24,7 @@ func (s *OperationsService) Stream(ctx context.Context, operationID string) iter
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		path := "/operations/" + url.PathEscape(operationID) + "/events"
-		req, err := s.c.newRequest(ctx, http.MethodGet, s.c.baseURL+path, nil, "", http.Header{"Accept": {"text/event-stream"}})
+		req, err := s.c.newRequest(ctx, http.MethodGet, s.c.baseURL+path, nil, "", "", http.Header{"Accept": {"text/event-stream"}})
 		if err != nil {
 			yield(nil, err)
 			return
