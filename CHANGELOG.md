@@ -7,6 +7,11 @@ publishes a GitHub release with that section as its notes.
 
 ## Unreleased
 
+### Added
+
+- `Databases.GetSnapshotSchedule` and `Databases.PutSnapshotSchedule`: automatic snapshots of a
+  database's data disk, as for instances and volumes.
+
 ## v0.5.0 — 2026-11-24
 
 ### Added
