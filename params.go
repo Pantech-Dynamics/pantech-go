@@ -203,6 +203,28 @@ func (p *GetCloudScanParams) values() url.Values {
 	return v
 }
 
+// GetServerCopyTemplateParams are the query parameters of get server copy template. Zero values are left out.
+type GetServerCopyTemplateParams struct {
+	// The planned server's item key. Required.
+	ItemKey string
+	// The copy role may also snapshot that server's own volumes and delete the snapshots it made.
+	CreateSnapshots bool
+}
+
+func (p *GetServerCopyTemplateParams) values() url.Values {
+	v := url.Values{}
+	if p == nil {
+		return v
+	}
+	if p.ItemKey != "" {
+		v.Set("item_key", p.ItemKey)
+	}
+	if p.CreateSnapshots {
+		v.Set("create_snapshots", "true")
+	}
+	return v
+}
+
 // ListDNSZonesParams are the query parameters of list DNS zones. Zero values are left out.
 type ListDNSZonesParams struct {
 	// Items per page, 1 to 100.

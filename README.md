@@ -203,14 +203,22 @@ dip, err = c.Instances.DisableDynamicIP(ctx, "vm_…")
 
 ## Move from another cloud
 
-`c.Migrate` connects an AWS account through a read-only role that only Pantech can assume (no
-access keys are shared), scans what runs there, and plans the move with a price comparison and a
-Terraform export. Nothing is created on Pantech until you apply the Terraform.
+`c.Migrate` connects an account in another cloud read-only, scans what runs there, and plans the
+move with a price comparison and a Terraform export. Nothing is created on Pantech until you apply
+the Terraform or start a move. `c.Migrate.ListProviders` lists the clouds it can read:
+
+- AWS, Google Cloud, Azure and Huawei Cloud are read with short-lived tokens Pantech signs and your
+  cloud trusts (no access keys are shared). The connection's `Setup` holds what to run there: an
+  AWS CloudFormation template, a gcloud or Azure CLI script, or Huawei Cloud's steps.
+- DigitalOcean, Hetzner, Linode, Vultr, Contabo and OpenStack are read by the Pantech Migrate agent,
+  which you run on your own machine with a read-only token that never leaves it.
 
 ```go
 conn, err := c.Migrate.CreateConnection(ctx, pantech.CreateCloudConnectionRequest{Name: "Production AWS"})
 // Create the stack from *conn.Setup.QuickCreateURL (or conn.Setup.Template) in AWS, then:
 _, err = c.Migrate.UpdateConnection(ctx, conn.ID, pantech.UpdateCloudConnectionRequest{RoleARN: &roleARN})
+// Google Cloud, Azure and Huawei Cloud send what their setup printed instead:
+//   pantech.UpdateCloudConnectionRequest{GCP: &pantech.CloudGCPFederation{...}}
 conn, err = c.Migrate.WaitForConnection(ctx, conn.ID, nil)
 
 scan, err := c.Migrate.StartScan(ctx, conn.ID)
@@ -221,9 +229,41 @@ fmt.Println(plan.Estimate.PantechMonthlyMinor, plan.Estimate.SourceMonthlyMinor)
 tf, err := c.Migrate.ExportTerraform(ctx, plan.ID) // tf.Files: main.tf, variables.tf
 ```
 
+For an agent provider, enroll the agent where it will run; the code is shown once and works for an
+hour:
+
+```go
+conn, err := c.Migrate.CreateConnection(ctx, pantech.CreateCloudConnectionRequest{
+	Provider: pantech.Ptr(pantech.CloudProviderHetzner), Name: "Hetzner",
+})
+enr, err := c.Migrate.CreateAgentEnrollment(ctx, conn.ID)
+fmt.Println(enr.EnrollCommand) // run it on your machine, then conn.Setup.Agent.RunCommand
+_, err = c.Migrate.RevokeAgent(ctx, conn.ID) // ends the agent's access at once
+```
+
 A failed connection or scan returns a `*pantech.CloudFailureError` whose `Failure.Message` says
 what to do. `c.Migrate.UpdateItem` excludes an item or changes its plan, size, range or role before
 you export. The whole flow is in [`examples/migrate-from-aws`](examples/migrate-from-aws).
+
+### Moving what the plan lists
+
+Each move is free; what it creates on Pantech bills as usual.
+
+| What | Methods |
+| --- | --- |
+| People (`user` items) | `SendInvites` sends Pantech invites with each item's role; nobody is invited twice |
+| Buckets | `SetCopyAccess` / `GetCopyAccess` grant a copy role for the chosen buckets; `StartBucketImport`, `ListBucketImports`, `GetBucketImport`, `ResyncBucketImport` (copies only what changed; `MirrorDeletes` needs the delete scope), `CancelBucketImport` |
+| Servers | `StartServerCopy` (through the agent, or AWS snapshots with `GetServerCopyTemplate`), `ListServerCopies`, `GetServerCopy`, `SyncServerCopy`, `CutOverServerCopy` (builds the instance), `CancelServerCopy` |
+| Databases | `StartDatabaseImport` (`dump` or `replicate`, through the agent), `ListDatabaseImports`, `GetDatabaseImport`, `CheckDatabaseImportReadiness`, `CutOverDatabaseImport`, `CancelDatabaseImport`, `RevokeDatabaseImportAccess` |
+| Kubernetes | `GetKubernetesMoveSourceAccess` (manifests for the source cluster), `StartKubernetesMove`, `ListKubernetesMoves`, `GetKubernetesMove`, `PreviewKubernetesMove`, `ApplyKubernetesMove`, `SyncKubernetesMoveVolumes`, `CutOverKubernetesMove`, `CancelKubernetesMove`, `DownloadKubernetesMoveManifests` |
+
+```go
+cp, err := c.Migrate.StartServerCopy(ctx, plan.ID, pantech.StartServerCopyRequest{
+	ItemKey: "instance:us-east-1:i-0abc", SecurityGroupID: pantech.Ptr("sg_…"),
+})
+// Poll c.Migrate.GetServerCopy until cp.Status is "synced", stop the application, then:
+cp, err = c.Migrate.CutOverServerCopy(ctx, cp.ID, pantech.ServerCopyActRequest{})
+```
 
 ## DNS and domains
 

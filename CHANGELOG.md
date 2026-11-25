@@ -7,10 +7,51 @@ publishes a GitHub release with that section as its notes.
 
 ## Unreleased
 
+## v0.6.0 — 2026-11-25
+
 ### Added
 
 - `Databases.GetSnapshotSchedule` and `Databases.PutSnapshotSchedule`: automatic snapshots of a
   database's data disk, as for instances and volumes.
+- Migrate connects every cloud it supports: `Migrate.ListProviders` (`CloudProvider`) lists them.
+  Google Cloud, Azure and Huawei Cloud are federated like AWS: send what their setup printed with
+  `UpdateCloudConnectionRequest.GCP`, `Azure` or `Huawei` (`CloudGCPFederation`,
+  `CloudAzureFederation`, `CloudHuaweiFederation`). DigitalOcean, Hetzner, Linode, Vultr, Contabo
+  and OpenStack are read by the Pantech Migrate agent: `Migrate.CreateAgentEnrollment`
+  (`CloudAgentEnrollment`, a one-time code; not retried, since each call issues a new code) and
+  `Migrate.RevokeAgent`. `CloudConnection` gains `ExternalAccountID`, `GCP`, `Azure`, `Huawei` and
+  `Agent` (`CloudAgentStatus`); `CloudConnectionSetup` gains `Access`, `TemplateFormat`, `Files`,
+  `Permissions` and `Agent` (`CloudAgentSetup`); `CloudScan` gains `Runner`, `Provider` and
+  `ExternalAccountID`. New constants `CloudProvider…`, `CloudAccessFederated`/`CloudAccessAgent` and
+  `CloudConnectionAwaitingAgent`.
+- People: `CloudUser` gains `ID`, `Source`, `AccessLevel` and `Roles`, and
+  `Migrate.SendInvites` invites a plan's `user` items (`MigrationInvites`,
+  `MigrationInviteResult`); `MigrationItemTarget` gains `InviteID` and `InvitedAt`.
+- Windows servers: `CloudInstance.OSName` and `MigrationItemTarget.ImageSlug`.
+- Bucket imports: `Migrate.GetCopyAccess` and `Migrate.SetCopyAccess` (`CopyAccess`,
+  `CopyAccessRequest`), `ListBucketImports`, `StartBucketImport`, `GetBucketImport`,
+  `CancelBucketImport` and `ResyncBucketImport` (`BucketImport`, `StartBucketImportRequest`,
+  `ResyncBucketImportRequest`), and `MigrationItemTarget.Bucket` (`MigrationBucketTarget`).
+- Server copies: `Migrate.StartServerCopy`, `GetServerCopyTemplate`
+  (`GetServerCopyTemplateParams`), `ListServerCopies`, `GetServerCopy`, `SyncServerCopy`,
+  `CutOverServerCopy` and `CancelServerCopy` (`ServerCopy`, `StartServerCopyRequest`,
+  `ServerCopyActRequest`, `ServerCopyTemplate`).
+- Database imports: `Migrate.StartDatabaseImport`, `ListDatabaseImports`, `GetDatabaseImport`,
+  `CheckDatabaseImportReadiness`, `CutOverDatabaseImport`, `CancelDatabaseImport` and
+  `RevokeDatabaseImportAccess` (`DatabaseImport`, `StartDatabaseImportRequest`).
+- Kubernetes moves: `Migrate.GetKubernetesMoveSourceAccess`, `StartKubernetesMove`,
+  `ListKubernetesMoves`, `GetKubernetesMove` (`KubernetesMoveDetail`), `PreviewKubernetesMove`,
+  `ApplyKubernetesMove`, `SyncKubernetesMoveVolumes`, `CutOverKubernetesMove`,
+  `CancelKubernetesMove` and `DownloadKubernetesMoveManifests`; scans find Kubernetes clusters
+  (`CloudInventory.KubernetesClusters`, `CloudScanCounts.KubernetesClusters`) and plans carry them
+  (`MigrationItemTarget.Kubernetes`, `UpdateMigrationItemRequest.AllowVersionDowngrade`).
+
+### Changed
+
+- The new Migrate operations are listed in `aheadOfSpec` until the published spec has them; the
+  vendored spec is unchanged.
+- `CloudConnectionSetup.IssuerURL` and `Audience` are now `*string`: they are null for agent
+  providers.
 
 ## v0.5.0 — 2026-11-24
 

@@ -40,6 +40,7 @@ var noReplay = []struct {
 	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/delete$`)},
 	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/multipart/start$`)},
 	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/multipart/complete$`)},
+	{http.MethodPost, regexp.MustCompile(`^/cloud-connections/[^/]+/agent-enrollments$`)},
 }
 
 // replaysOnRetry reports whether a retried request is answered from the
