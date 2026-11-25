@@ -146,6 +146,10 @@ func TestRoutesThatDoNotReplayAreNotRetried(t *testing.T) {
 			_, err := c.Buckets.CompleteMultipartUpload(ctx, "bkt_1", CompleteMultipartUploadRequest{Key: "a", UploadID: "u_1"})
 			return err
 		},
+		"POST /cloud-connections/{id}/agent-enrollments": func(c *Client) error {
+			_, err := c.Migrate.CreateAgentEnrollment(ctx, "ccn_1")
+			return err
+		},
 	}
 	for name, call := range calls {
 		for _, code := range []int{500, 502, 503, 504} {

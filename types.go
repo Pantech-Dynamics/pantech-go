@@ -2061,49 +2061,154 @@ type KubernetesRoutingSynced struct {
 // CloudFailure is the API's cloud failure object.
 // Why the last check or scan failed; null when it didn't.
 type CloudFailure struct {
-	// One of: assume_role_denied, permission_missing, provider_unavailable, scan_too_large, internal.
+	// One of: assume_role_denied, permission_missing, provider_unavailable, scan_too_large, internal,
+	// agent_offline, token_rejected, invalid_upload.
 	Code string `json:"code"`
 	// What to do about it.
 	Message string `json:"message"`
 }
 
 // CloudConnectionSetup is the API's cloud connection setup object.
-// What you need to create the role in your account.
+// What you run in your own cloud to connect it. Every setup grants read-only
+// access, listed one permission at a time in Permissions; none creates a key
+// Pantech holds.
 type CloudConnectionSetup struct {
-	// Pantech's identity provider URL, which your role trusts.
-	IssuerURL string `json:"issuer_url"`
-	// The audience every token carries.
-	Audience string `json:"audience"`
-	// The subject your role requires: this connection's id.
+	// `federated`: Pantech reads your cloud with 5-minute tokens it signs for this connection only
+	// (AWS, Google Cloud, Azure, Huawei Cloud). `agent`: you run the Pantech Migrate agent, which
+	// keeps your read-only token on your machine. One of: federated, agent.
+	Access string `json:"access"`
+	// Pantech's identity provider URL, which your cloud trusts; nil for agent providers.
+	IssuerURL *string `json:"issuer_url"`
+	// The audience every token carries; nil for agent providers.
+	Audience *string `json:"audience"`
+	// The subject your trust policy requires: this connection's id.
 	Subject string `json:"subject"`
 	// Opens AWS's create-stack page with this template and connection filled in; null when not offered.
 	QuickCreateURL *string `json:"quick_create_url"`
-	// A CloudFormation template (JSON) for this connection: a read-only role and, unless one exists, the identity provider.
+	// The main setup file: AWS's CloudFormation template (JSON), Google Cloud's gcloud script,
+	// Azure's Azure CLI script, Huawei Cloud's steps, or, for agent providers, how to make a
+	// read-only token.
 	Template string `json:"template"`
+	// One of: cloudformation, shell, markdown, agent.
+	TemplateFormat string `json:"template_format"`
+	// Further setup files, such as a Terraform version of the setup or JSON documents to paste.
+	Files []CloudSetupFile `json:"files"`
+	// Every read-only permission the setup grants.
+	Permissions []string `json:"permissions"`
+	// How to run the Pantech Migrate agent; nil for federated providers.
+	Agent *CloudAgentSetup `json:"agent"`
+}
+
+// CloudSetupFile is one further file of a connection's setup.
+type CloudSetupFile struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
+// CloudAgentSetup is the API's cloud agent setup object.
+// How to run the Pantech Migrate agent; null for federated providers.
+type CloudAgentSetup struct {
+	// The agent's container image.
+	Image string `json:"image"`
+	// Where the agent's binaries are published.
+	DownloadURL *string `json:"download_url"`
+	APIURL      string  `json:"api_url"`
+	// The environment variables the agent reads your read-only credential from, on your machine.
+	// It is never sent to Pantech.
+	TokenVariables []string `json:"token_variables"`
+	TokenHowTo     string   `json:"token_how_to"`
+	// Contains `<ENROLLMENT_CODE>` where the one-time code goes.
+	EnrollCommand    string `json:"enroll_command"`
+	RunCommand       string `json:"run_command"`
+	ContainerCommand string `json:"container_command"`
+}
+
+// CloudAgentStatus is the API's cloud agent status object.
+// The connection's enrolled agent; null when none is.
+type CloudAgentStatus struct {
+	ID string `json:"id"`
+	// Whether it polled in the last 2 minutes.
+	Online              bool      `json:"online"`
+	AgentVersion        string    `json:"agent_version"`
+	Platform            string    `json:"platform"`
+	EnrolledAt          time.Time `json:"enrolled_at"`
+	LastSeenAt          time.Time `json:"last_seen_at"`
+	CredentialExpiresAt time.Time `json:"credential_expires_at"`
+}
+
+// CloudGCPFederation is the API's cloud GCP federation object.
+// What the Google Cloud setup printed.
+type CloudGCPFederation struct {
+	ProjectNumber       string `json:"project_number"`
+	PoolID              string `json:"pool_id"`
+	ProviderID          string `json:"provider_id"`
+	ServiceAccountEmail string `json:"service_account_email"`
+	// The projects to scan, 1 to 20.
+	ProjectIDs []string `json:"project_ids"`
+}
+
+// CloudAzureFederation is the API's cloud Azure federation object.
+// What the Azure setup printed.
+type CloudAzureFederation struct {
+	TenantID string `json:"tenant_id"`
+	// The app registration's application (client) ID.
+	ClientID string `json:"client_id"`
+	// The subscriptions to scan, 1 to 20.
+	SubscriptionIDs []string `json:"subscription_ids"`
+}
+
+// CloudHuaweiFederation is the API's cloud Huawei federation object.
+// Your Huawei Cloud identity provider and the projects to scan.
+type CloudHuaweiFederation struct {
+	IdentityProviderID string `json:"identity_provider_id"`
+	// 1 to 20 region projects.
+	Projects []CloudHuaweiProject `json:"projects"`
+}
+
+// CloudHuaweiProject is one Huawei Cloud region project to scan.
+type CloudHuaweiProject struct {
+	Region string `json:"region"`
+	ID     string `json:"id"`
 }
 
 // CloudConnection is the API's cloud connection object.
-// A connection to an account in another cloud, through a read-only role.
+// A connection to an account in another cloud: read-only, through tokens
+// Pantech signs (federated providers) or through the Pantech Migrate agent.
 type CloudConnection struct {
 	ID string `json:"id"`
-	// One of: aws.
+	// One of: aws, gcp, azure, huawei, digitalocean, hetzner, linode, vultr, contabo, openstack.
 	Provider string `json:"provider"`
 	Name     string `json:"name"`
-	// `awaiting_role`, `verifying`, `connected` or `failed`. One of: awaiting_role, verifying, connected, failed.
-	Status       string        `json:"status"`
-	Failure      *CloudFailure `json:"failure"`
-	RoleARN      *string       `json:"role_arn"`
-	AWSAccountID *string       `json:"aws_account_id"`
-	VerifiedAt   *time.Time    `json:"verified_at"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
-	// What you need to create the role in your account.
+	// `awaiting_role` (federated providers: waiting for what the setup printed), `awaiting_agent`
+	// (agent providers: no agent enrolled), `verifying`, `connected` or `failed`.
+	// One of: awaiting_role, awaiting_agent, verifying, connected, failed.
+	Status  string        `json:"status"`
+	Failure *CloudFailure `json:"failure"`
+	RoleARN *string       `json:"role_arn"`
+	// Set for AWS connections only; see ExternalAccountID.
+	AWSAccountID *string `json:"aws_account_id"`
+	// The source account: an AWS account, a Google Cloud pool's project number, an Azure tenant, or
+	// what the agent reported.
+	ExternalAccountID *string `json:"external_account_id"`
+	// What the Google Cloud setup printed.
+	GCP *CloudGCPFederation `json:"gcp"`
+	// What the Azure setup printed.
+	Azure *CloudAzureFederation `json:"azure"`
+	// Your Huawei Cloud identity provider and the projects to scan.
+	Huawei *CloudHuaweiFederation `json:"huawei"`
+	// The connection's enrolled agent; nil when none is.
+	Agent      *CloudAgentStatus `json:"agent"`
+	VerifiedAt *time.Time        `json:"verified_at"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
+	// What you run in your own cloud to connect it.
 	Setup CloudConnectionSetup `json:"setup"`
 }
 
 // CreateCloudConnectionRequest is the API's create cloud connection request object.
 type CreateCloudConnectionRequest struct {
-	// `aws`, the default. One of: aws.
+	// `aws`, the default, or another provider ListProviders lists.
+	// One of: aws, gcp, azure, huawei, digitalocean, hetzner, linode, vultr, contabo, openstack.
 	Provider *string `json:"provider,omitempty"`
 	// 1 to 100 characters, for example `Production AWS`.
 	Name string `json:"name"`
@@ -2112,25 +2217,32 @@ type CreateCloudConnectionRequest struct {
 // UpdateCloudConnectionRequest is the API's update cloud connection request object.
 type UpdateCloudConnectionRequest struct {
 	Name *string `json:"name,omitempty"`
-	// The stack's RoleArn output.
+	// AWS: the stack's RoleArn output.
 	RoleARN *string `json:"role_arn,omitempty"`
-	// Check the role again.
+	// Google Cloud: what the setup printed.
+	GCP *CloudGCPFederation `json:"gcp,omitempty"`
+	// Azure: what the setup printed.
+	Azure *CloudAzureFederation `json:"azure,omitempty"`
+	// Huawei Cloud: the identity provider and the projects to scan.
+	Huawei *CloudHuaweiFederation `json:"huawei,omitempty"`
+	// Check the connection again.
 	Retry *bool `json:"retry,omitempty"`
 }
 
 // CloudScanCounts is the API's cloud scan counts object.
 type CloudScanCounts struct {
-	Instances      int `json:"instances"`
-	Volumes        int `json:"volumes"`
-	Networks       int `json:"networks"`
-	Subnets        int `json:"subnets"`
-	SecurityGroups int `json:"security_groups"`
-	PublicIPs      int `json:"public_ips"`
-	LoadBalancers  int `json:"load_balancers"`
-	Databases      int `json:"databases"`
-	Buckets        int `json:"buckets"`
-	Users          int `json:"users"`
-	SSHKeys        int `json:"ssh_keys"`
+	Instances          int `json:"instances"`
+	Volumes            int `json:"volumes"`
+	Networks           int `json:"networks"`
+	Subnets            int `json:"subnets"`
+	SecurityGroups     int `json:"security_groups"`
+	PublicIPs          int `json:"public_ips"`
+	LoadBalancers      int `json:"load_balancers"`
+	Databases          int `json:"databases"`
+	Buckets            int `json:"buckets"`
+	Users              int `json:"users"`
+	SSHKeys            int `json:"ssh_keys"`
+	KubernetesClusters int `json:"kubernetes_clusters"`
 }
 
 // CloudCostMonth is the API's cloud cost month object.
@@ -2169,6 +2281,7 @@ type CloudInstance struct {
 	PrivateIP        *string    `json:"private_ip"`
 	KeyName          *string    `json:"key_name"`
 	LaunchedAt       *time.Time `json:"launched_at"`
+	OSName           *string    `json:"os_name"`
 }
 
 // CloudVolume is a disk a scan found.
@@ -2268,10 +2381,17 @@ type CloudBucket struct {
 
 // CloudUser is a person a scan found.
 type CloudUser struct {
+	ID        *string    `json:"id"`
 	Name      string     `json:"name"`
 	Email     *string    `json:"email"`
 	IsAdmin   bool       `json:"is_admin"`
 	CreatedAt *time.Time `json:"created_at"`
+	// Where the person came from: `iam_user`, `identity_center`, `gcp_iam`, `entra`, `team`.
+	Source *string `json:"source"`
+	// One of: admin, write, read.
+	AccessLevel *string `json:"access_level"`
+	// The source cloud's own role names.
+	Roles []string `json:"roles"`
 }
 
 // CloudSSHKey is an SSH key a scan found.
@@ -2285,17 +2405,48 @@ type CloudSSHKey struct {
 // CloudInventory is the API's cloud inventory object.
 // Everything a scan found. Names and tags are the account owner's own text.
 type CloudInventory struct {
-	Instances      []CloudInstance      `json:"instances"`
-	Volumes        []CloudVolume        `json:"volumes"`
-	Networks       []CloudNetwork       `json:"networks"`
-	Subnets        []CloudSubnet        `json:"subnets"`
-	SecurityGroups []CloudSecurityGroup `json:"security_groups"`
-	PublicIPs      []CloudPublicIP      `json:"public_ips"`
-	LoadBalancers  []CloudLoadBalancer  `json:"load_balancers"`
-	Databases      []CloudDatabase      `json:"databases"`
-	Buckets        []CloudBucket        `json:"buckets"`
-	Users          []CloudUser          `json:"users"`
-	SSHKeys        []CloudSSHKey        `json:"ssh_keys"`
+	Instances          []CloudInstance          `json:"instances"`
+	Volumes            []CloudVolume            `json:"volumes"`
+	Networks           []CloudNetwork           `json:"networks"`
+	Subnets            []CloudSubnet            `json:"subnets"`
+	SecurityGroups     []CloudSecurityGroup     `json:"security_groups"`
+	PublicIPs          []CloudPublicIP          `json:"public_ips"`
+	LoadBalancers      []CloudLoadBalancer      `json:"load_balancers"`
+	Databases          []CloudDatabase          `json:"databases"`
+	Buckets            []CloudBucket            `json:"buckets"`
+	Users              []CloudUser              `json:"users"`
+	SSHKeys            []CloudSSHKey            `json:"ssh_keys"`
+	KubernetesClusters []CloudKubernetesCluster `json:"kubernetes_clusters"`
+}
+
+// CloudKubernetesCluster is a Kubernetes cluster a scan found. The cluster's
+// certificate authority is never kept.
+type CloudKubernetesCluster struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Region string `json:"region"`
+	// Who runs the control plane: eks, gke, aks, doks, lke or self_managed.
+	Provider       string          `json:"provider"`
+	Version        *string         `json:"version"`
+	EndpointPublic bool            `json:"endpoint_public"`
+	NodePools      []CloudNodePool `json:"node_pools"`
+	Addons         []string        `json:"addons"`
+	CreatedAt      *time.Time      `json:"created_at"`
+}
+
+// CloudNodePool is a node pool of a Kubernetes cluster a scan found.
+type CloudNodePool struct {
+	Name         string  `json:"name"`
+	InstanceType *string `json:"instance_type"`
+	VCPU         *int    `json:"vcpu"`
+	MemoryMiB    *int    `json:"memory_mib"`
+	Architecture string  `json:"architecture"`
+	GPU          bool    `json:"gpu"`
+	Windows      bool    `json:"windows"`
+	Desired      int     `json:"desired"`
+	Autoscaling  bool    `json:"autoscaling"`
+	Min          int     `json:"min"`
+	Max          int     `json:"max"`
 }
 
 // CloudScan is the API's cloud scan object.
@@ -2303,13 +2454,17 @@ type CloudInventory struct {
 type CloudScan struct {
 	ID           string `json:"id"`
 	ConnectionID string `json:"connection_id"`
+	// `worker` (Pantech read your cloud) or `agent` (your agent did). One of: worker, agent.
+	Runner string `json:"runner"`
 	// One of: queued, running, succeeded, failed.
-	Status       string        `json:"status"`
-	Failure      *CloudFailure `json:"failure"`
-	CreatedAt    time.Time     `json:"created_at"`
-	StartedAt    *time.Time    `json:"started_at"`
-	FinishedAt   *time.Time    `json:"finished_at"`
-	AWSAccountID *string       `json:"aws_account_id"`
+	Status            string        `json:"status"`
+	Failure           *CloudFailure `json:"failure"`
+	CreatedAt         time.Time     `json:"created_at"`
+	StartedAt         *time.Time    `json:"started_at"`
+	FinishedAt        *time.Time    `json:"finished_at"`
+	Provider          *string       `json:"provider"`
+	AWSAccountID      *string       `json:"aws_account_id"`
+	ExternalAccountID *string       `json:"external_account_id"`
 	// Regions read.
 	Regions []string         `json:"regions"`
 	Counts  *CloudScanCounts `json:"counts"`
@@ -2376,13 +2531,62 @@ type MigrationItemTarget struct {
 	Email     *string             `json:"email"`
 	PublicKey *string             `json:"public_key"`
 	Listeners []MigrationListener `json:"listeners"`
+	// The image a server is planned on when its operating system decides it (Windows Server).
+	ImageSlug *string `json:"image_slug"`
+	// The Pantech invite sent to this person from this plan.
+	InviteID  *string    `json:"invite_id"`
+	InvitedAt *time.Time `json:"invited_at"`
+	// The Pantech bucket a bucket item becomes; nil for every other kind.
+	Bucket *MigrationBucketTarget `json:"bucket"`
+	// What a kubernetes_cluster item becomes on Pantech; nil for every other kind.
+	Kubernetes *MigrationKubernetesTarget `json:"kubernetes"`
+}
+
+// MigrationBucketTarget is the API's migration bucket target object.
+// The Pantech bucket a bucket item becomes.
+type MigrationBucketTarget struct {
+	// A valid Pantech bucket name made from the source's; nil when none could be made.
+	Name       *string `json:"name"`
+	Region     string  `json:"region"`
+	Versioning bool    `json:"versioning"`
+	// The source bucket was public. The Pantech bucket stays private unless the copy asks.
+	PublicRead bool `json:"public_read"`
+	// The source's own daily metric, read by the scan; nil when unknown.
+	SizeBytes *int64 `json:"size_bytes"`
+	// The source's own daily metric, read by the scan; nil when unknown.
+	ObjectCount *int64 `json:"object_count"`
+	// The day (YYYY-MM-DD) the size and object count describe: show them as "as of" this day.
+	SizeAsOf *string `json:"size_as_of"`
+}
+
+// MigrationKubernetesTarget is the API's migration Kubernetes target object.
+// What a kubernetes_cluster item becomes on Pantech.
+type MigrationKubernetesTarget struct {
+	VersionID *string             `json:"version_id"`
+	Version   *string             `json:"version"`
+	NodePools []MigrationNodePool `json:"node_pools"`
+	Addons    []string            `json:"addons"`
+	// The customer consented to a lower Kubernetes version than the source runs.
+	AllowDowngrade bool `json:"allow_downgrade"`
+}
+
+// MigrationNodePool is a node pool a kubernetes_cluster item plans on Pantech.
+type MigrationNodePool struct {
+	Name        string  `json:"name"`
+	PlanSlug    *string `json:"plan_slug"`
+	Count       int     `json:"count"`
+	Autoscaling bool    `json:"autoscaling"`
+	Min         int     `json:"min"`
+	Max         int     `json:"max"`
+	SourceName  string  `json:"source_name"`
 }
 
 // MigrationItem is the API's migration item object.
 type MigrationItem struct {
 	// Stable across edits: kind, region and the source id.
 	Key string `json:"key"`
-	// One of: network, subnet, security_group, instance, volume, public_ip, load_balancer, database, ssh_key, user, bucket.
+	// One of: network, subnet, security_group, instance, volume, public_ip, load_balancer, database, ssh_key, user, bucket,
+	// kubernetes_cluster.
 	Kind   string              `json:"kind"`
 	Source MigrationItemSource `json:"source"`
 	// One of: planned, excluded, unsupported.
@@ -2464,6 +2668,8 @@ type UpdateMigrationItemRequest struct {
 	// One of: member, admin.
 	Role  *string `json:"role,omitempty"`
 	Email *string `json:"email,omitempty"`
+	// On a kubernetes_cluster item: consent to a lower Kubernetes version than the source runs.
+	AllowVersionDowngrade *bool `json:"allow_version_downgrade,omitempty"`
 }
 
 // MigrationTerraformFile is one file of a Terraform export.
@@ -2475,6 +2681,678 @@ type MigrationTerraformFile struct {
 // MigrationTerraform is the API's migration terraform object.
 type MigrationTerraform struct {
 	Files []MigrationTerraformFile `json:"files"`
+}
+
+// CloudProvider is the API's cloud provider object: a cloud Pantech Migrate
+// can connect.
+type CloudProvider struct {
+	// One of: aws, gcp, azure, huawei, digitalocean, hetzner, linode, vultr, contabo, openstack.
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	// One of: federated, agent.
+	Access string `json:"access"`
+	// Whether a scan reads the source's spend. When false the comparison says the spend is not available.
+	CostReadable bool `json:"cost_readable"`
+	// Whether a scan lists the people with access. When false, add them to the plan by hand.
+	PeopleReadable bool `json:"people_readable"`
+	// Whether this deployment can connect it now.
+	Available bool `json:"available"`
+}
+
+// CloudAgentEnrollment is the API's cloud agent enrollment object.
+type CloudAgentEnrollment struct {
+	// The one-time enrollment code, shown only now. It works once, for an hour.
+	Code          string    `json:"code"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	EnrollCommand string    `json:"enroll_command"`
+}
+
+// SendMigrationInvitesRequest is the API's send migration invites request object.
+type SendMigrationInvitesRequest struct {
+	// The `user` items to invite, by key: 1 to 50.
+	Keys []string `json:"keys"`
+}
+
+// MigrationInviteResult is what happened to one person of a plan.
+type MigrationInviteResult struct {
+	Key   string  `json:"key"`
+	Email *string `json:"email"`
+	Role  *string `json:"role"`
+	// `invited`; `already_invited` (from this plan or by hand); `already_member`; `role_not_allowed`
+	// (an admin can't invite an admin: change the person's role to member or ask an owner);
+	// `skipped` (see Reason); `failed` (try again).
+	// One of: invited, already_invited, already_member, role_not_allowed, skipped, failed.
+	Outcome string `json:"outcome"`
+	// Why a person was skipped: `email_missing`, `excluded`, `not_a_person`, `unknown_item`.
+	Reason   *string `json:"reason"`
+	InviteID *string `json:"invite_id"`
+}
+
+// MigrationInvites is the API's migration invites object: what happened to
+// each person, and the plan.
+type MigrationInvites struct {
+	Results   []MigrationInviteResult `json:"results"`
+	Migration Migration               `json:"migration"`
+}
+
+// BucketImportFailure is the API's bucket import failure object.
+// Why it failed; null when it didn't. Message says what to do.
+type BucketImportFailure struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// CopyAccessRequest is the API's copy access request object.
+type CopyAccessRequest struct {
+	// The source buckets Pantech may copy, 1 to 50, each once. Required the first time.
+	Buckets []string `json:"buckets,omitempty"`
+	// The copy stack's `CopyRoleArn` output. Setting it queues a verification.
+	RoleARN *string `json:"role_arn,omitempty"`
+	// Verify the role again.
+	Retry *bool `json:"retry,omitempty"`
+}
+
+// CopyAccessBucket is a bucket chosen for copying.
+type CopyAccessBucket struct {
+	Name   string  `json:"name"`
+	Region *string `json:"region"`
+	// One of: enabled, suspended, off.
+	Versioning *string `json:"versioning"`
+	// Verified: an import may copy this bucket.
+	Ready   bool                 `json:"ready"`
+	Failure *BucketImportFailure `json:"failure"`
+}
+
+// CopyAccessSetup is what the copy role trusts, and its template.
+type CopyAccessSetup struct {
+	IssuerURL string `json:"issuer_url"`
+	Audience  string `json:"audience"`
+	// The copy role's token subject: the connection id followed by `:copy`.
+	Subject string `json:"subject"`
+	// The CloudFormation template (JSON text) for a role that may read only the chosen buckets;
+	// nil until buckets are chosen.
+	Template *string `json:"template"`
+}
+
+// CopyAccess is the API's copy access object: a connection's opt-in access
+// for copying the chosen buckets, separate from its read-only role.
+type CopyAccess struct {
+	ConnectionID string `json:"connection_id"`
+	// One of: not_requested, awaiting_role, verifying, verified, failed.
+	Status     string               `json:"status"`
+	Failure    *BucketImportFailure `json:"failure"`
+	RoleARN    *string              `json:"role_arn"`
+	Buckets    []CopyAccessBucket   `json:"buckets"`
+	VerifiedAt *time.Time           `json:"verified_at"`
+	Setup      CopyAccessSetup      `json:"setup"`
+}
+
+// ResyncBucketImportRequest is the API's resync bucket import request object.
+type ResyncBucketImportRequest struct {
+	// Off unless set. After this pass has listed the whole source, delete the objects this import
+	// copied that the source no longer has, and only those still holding the bytes the import
+	// wrote. Objects the import did not write are never deleted. Needs the delete scope.
+	MirrorDeletes *bool `json:"mirror_deletes,omitempty"`
+}
+
+// StartBucketImportRequest is the API's start bucket import request object.
+// Name exactly one of DestinationBucketName and DestinationBucketID.
+type StartBucketImportRequest struct {
+	ConnectionID string `json:"connection_id"`
+	// The source bucket's name. It must have verified copy access.
+	SourceBucket string `json:"source_bucket"`
+	// A new Pantech bucket to make and copy into.
+	DestinationBucketName *string `json:"destination_bucket_name,omitempty"`
+	// An existing Pantech bucket of the organization to copy into.
+	DestinationBucketID *string `json:"destination_bucket_id,omitempty"`
+	// Versioning on a new bucket.
+	Versioning *bool `json:"versioning,omitempty"`
+	// Make a new bucket publicly readable. Off unless asked, even when the source was public.
+	PublicRead *bool `json:"public_read,omitempty"`
+	// The plan the move belongs to; its size for the bucket is checked against the storage left.
+	MigrationID *string `json:"migration_id,omitempty"`
+}
+
+// BucketImportProgress is a bucket import's progress in its current pass.
+type BucketImportProgress struct {
+	ObjectsCopied int64 `json:"objects_copied"`
+	// Already in the Pantech bucket unchanged.
+	ObjectsSkipped int64 `json:"objects_skipped"`
+	ObjectsFailed  int64 `json:"objects_failed"`
+	BytesCopied    int64 `json:"bytes_copied"`
+	BytesSkipped   int64 `json:"bytes_skipped"`
+}
+
+// BucketImportObjectFailure is an object that failed a bucket import's pass.
+type BucketImportObjectFailure struct {
+	Key string `json:"key"`
+	// One of: object_archived, object_access_denied, invalid_key, object_too_large, source_changed,
+	// verification_failed, transfer_failed, destination_rejected.
+	Reason  string    `json:"reason"`
+	Message string    `json:"message"`
+	At      time.Time `json:"at"`
+}
+
+// BucketImportEvent is one entry of a bucket import's audit trail.
+type BucketImportEvent struct {
+	// One of: started, cancel_requested, resync_requested, succeeded, failed, cancelled,
+	// mirror_deleted, mirror_skipped.
+	Action string `json:"action"`
+	// Nil for Pantech's own steps.
+	ActorUserID *string   `json:"actor_user_id"`
+	Detail      *string   `json:"detail"`
+	OccurredAt  time.Time `json:"occurred_at"`
+}
+
+// BucketImportSource is the bucket a bucket import copies from.
+type BucketImportSource struct {
+	Provider string  `json:"provider"`
+	Bucket   string  `json:"bucket"`
+	Region   *string `json:"region"`
+}
+
+// BucketImportDestination is the Pantech bucket a bucket import copies into.
+type BucketImportDestination struct {
+	BucketID   string `json:"bucket_id"`
+	BucketName string `json:"bucket_name"`
+	PublicRead bool   `json:"public_read"`
+}
+
+// BucketImport is the API's bucket import object: one source bucket copied
+// into a Pantech bucket.
+type BucketImport struct {
+	ID           string                  `json:"id"`
+	ConnectionID string                  `json:"connection_id"`
+	MigrationID  *string                 `json:"migration_id"`
+	Source       BucketImportSource      `json:"source"`
+	Destination  BucketImportDestination `json:"destination"`
+	// One of: queued, running, succeeded, failed, cancelled.
+	Status          string               `json:"status"`
+	Failure         *BucketImportFailure `json:"failure"`
+	CancelRequested bool                 `json:"cancel_requested"`
+	// 1 for the first copy; each resync adds one.
+	Pass     int                  `json:"pass"`
+	Progress BucketImportProgress `json:"progress"`
+	// Bytes copied over every pass.
+	TotalBytesCopied int64 `json:"total_bytes_copied"`
+	// The current pass was asked to delete what this import copied and the source no longer has.
+	MirrorDeletes bool `json:"mirror_deletes"`
+	// Objects deleted by mirror passes, over every pass.
+	ObjectsDeleted int64 `json:"objects_deleted"`
+	// When a queued import waiting on an unreachable side is tried again.
+	NextAttemptAt *time.Time `json:"next_attempt_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+	StartedAt     *time.Time `json:"started_at"`
+	FinishedAt    *time.Time `json:"finished_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	// The first 100 objects that failed this pass; nil in a list.
+	Failures []BucketImportObjectFailure `json:"failures"`
+	// The audit trail; nil in a list.
+	Events []BucketImportEvent `json:"events"`
+}
+
+// ServerCopyAWSSource is how a server copy reads AWS EBS snapshots.
+type ServerCopyAWSSource struct {
+	// The copy stack's CopyRoleArn output, never the discover role.
+	CopyRoleARN string `json:"copy_role_arn"`
+	// The copy role may snapshot the server's volumes itself.
+	CreateSnapshots *bool `json:"create_snapshots,omitempty"`
+	// The first pass's snapshot for each volume id, tagged pantech-migrate-connection.
+	Snapshots map[string]string `json:"snapshots,omitempty"`
+}
+
+// StartServerCopyRequest is the API's start server copy request object.
+type StartServerCopyRequest struct {
+	// The planned server's item key.
+	ItemKey string `json:"item_key"`
+	// `agent` (the default) or `aws_snapshot`. One of: agent, aws_snapshot.
+	Source *string `json:"source,omitempty"`
+	// The new instance's name; the source's when empty.
+	Name *string `json:"name,omitempty"`
+	// Overrides the item's plan.
+	PlanSlug        *string `json:"plan_slug,omitempty"`
+	SubnetID        *string `json:"subnet_id,omitempty"`
+	SecurityGroupID *string `json:"security_group_id,omitempty"`
+	// Optional. The copied disk keeps its own users and keys.
+	SSHKeyID *string `json:"ssh_key_id,omitempty"`
+	// For `aws_snapshot`.
+	AWS *ServerCopyAWSSource `json:"aws,omitempty"`
+}
+
+// ServerCopyActRequest is the API's server copy act request object, sent to
+// sync, cut over or cancel a server copy.
+type ServerCopyActRequest struct {
+	// The next pass's snapshot for each volume id, for an AWS copy that makes none itself.
+	Snapshots map[string]string `json:"snapshots,omitempty"`
+}
+
+// ServerCopyTemplate is the API's server copy template object: the AWS copy
+// role for one planned server.
+type ServerCopyTemplate struct {
+	// CloudFormation JSON.
+	Template    string            `json:"template"`
+	SnapshotTag map[string]string `json:"snapshot_tag"`
+}
+
+// ServerCopyFailure is why a server copy failed.
+type ServerCopyFailure struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// ServerCopyInstance is the Pantech instance a server copy builds.
+type ServerCopyInstance struct {
+	Name            string  `json:"name"`
+	PlanSlug        string  `json:"plan_slug"`
+	Region          string  `json:"region"`
+	SubnetID        *string `json:"subnet_id"`
+	SecurityGroupID *string `json:"security_group_id"`
+	SSHKeyID        *string `json:"ssh_key_id"`
+	// Set once the instance is being created.
+	ID      *string `json:"id"`
+	OrderID *string `json:"order_id"`
+}
+
+// ServerCopyDisk is one disk a server copy copies.
+type ServerCopyDisk struct {
+	Index int `json:"index"`
+	// One of: root, data.
+	Role       string  `json:"role"`
+	Source     string  `json:"source"`
+	SizeBytes  int64   `json:"size_bytes"`
+	SnapshotID *string `json:"snapshot_id"`
+	VolumeID   *string `json:"volume_id"`
+}
+
+// ServerCopyFlag is a pre-flight finding of a server copy.
+type ServerCopyFlag struct {
+	Code     string `json:"code"`
+	Blocking bool   `json:"blocking"`
+	Message  string `json:"message"`
+}
+
+// ServerCopyPass is the pass a server copy is running.
+type ServerCopyPass struct {
+	Number int `json:"number"`
+	// One of: full, delta, final.
+	Kind      string     `json:"kind"`
+	StartedAt *time.Time `json:"started_at"`
+}
+
+// ServerCopyProgress is a server copy's progress in its pass.
+type ServerCopyProgress struct {
+	ChunksTotal   int64  `json:"chunks_total"`
+	ChunksDone    int64  `json:"chunks_done"`
+	BytesTotal    int64  `json:"bytes_total"`
+	BytesUploaded int64  `json:"bytes_uploaded"`
+	WireBytes     int64  `json:"wire_bytes"`
+	ETASeconds    *int64 `json:"eta_seconds"`
+}
+
+// ServerCopy is the API's server copy object: one planned server's disks
+// copied into a new Pantech instance.
+type ServerCopy struct {
+	// `sco_…`.
+	ID           string `json:"id"`
+	MigrationID  string `json:"migration_id"`
+	ItemKey      string `json:"item_key"`
+	ConnectionID string `json:"connection_id"`
+	// One of: agent, aws_snapshot.
+	Source string `json:"source"`
+	// One of: waiting, copying, synced, importing, creating_instance, completed, failed, cancelled.
+	Status  string             `json:"status"`
+	Failure *ServerCopyFailure `json:"failure"`
+	// One of: linux, windows.
+	OSFamily string `json:"os_family"`
+	// One of: bios, uefi.
+	BootMode *string            `json:"boot_mode"`
+	Instance ServerCopyInstance `json:"instance"`
+	Disks    []ServerCopyDisk   `json:"disks"`
+	Flags    []ServerCopyFlag   `json:"flags"`
+	Pass     *ServerCopyPass    `json:"pass"`
+	// One of: full, delta, final.
+	PendingPass *string            `json:"pending_pass"`
+	Progress    ServerCopyProgress `json:"progress"`
+	SyncedAt    *time.Time         `json:"synced_at"`
+	ExpiresAt   time.Time          `json:"expires_at"`
+	CompletedAt *time.Time         `json:"completed_at"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+}
+
+// StartDatabaseImportRequest is the API's start database import request object.
+type StartDatabaseImportRequest struct {
+	// The plan item's key: one of the migration's `database` items.
+	ItemKey string `json:"item_key"`
+	// One of your Pantech databases with the same engine as the source. Create it first: it bills
+	// as usual; the move itself is free.
+	DestinationDatabaseID string `json:"destination_database_id"`
+	// The database to create and fill on the destination; it must be empty. Defaults to the
+	// source's name, made a valid name: 1 to 63 lowercase letters, digits and underscores, starting
+	// with a letter.
+	TargetDatabase *string `json:"target_database,omitempty"`
+	// `dump` copies once (stop writes to the source first). `replicate` keeps following the
+	// source's changes until you cut over (PostgreSQL sources only). One of: dump, replicate.
+	Mode *string `json:"mode,omitempty"`
+	// The source's name in your Migrate agent's configuration, 1 to 64 of letters, digits, `.`, `_`
+	// and `-`. Its address and login stay on the agent and are never sent to Pantech.
+	SourceRef string `json:"source_ref"`
+}
+
+// DatabaseImportFailure is the API's database import failure object.
+// Why the import stopped; null while it has not.
+type DatabaseImportFailure struct {
+	// `statement_refused`, `chunk_invalid`, `access_revoked`, `destination_unavailable`, or one the
+	// agent reported: `source_unreachable`, `source_auth_failed`, `source_permission_denied`,
+	// `source_not_configured`, `dump_tool_missing`, `source_changed`, `internal`.
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// DatabaseImportIssue is one finding of a database import's pre-flight.
+type DatabaseImportIssue struct {
+	// For example `source_version_newer`, `extension_unavailable`, `size_exceeds_storage`,
+	// `size_not_measured`, `table_without_primary_key`, `replication_check_failed`,
+	// `mode_not_available`, `target_not_empty`, `destination_not_ready`,
+	// `destination_not_supported`.
+	Code     string `json:"code"`
+	Blocking bool   `json:"blocking"`
+	Message  string `json:"message"`
+	// A copy-paste fix for the source's provider (an RDS parameter group setting, a Cloud SQL flag,
+	// an Azure server parameter, SQL).
+	Fix *string `json:"fix"`
+	// What the issue is about (an extension, tables, a check).
+	Subject *string `json:"subject"`
+}
+
+// DatabaseImportSource is what the Migrate agent measured on the source.
+// Numbers it could not measure are nil, never estimated.
+type DatabaseImportSource struct {
+	Engine  string  `json:"engine"`
+	Version *string `json:"version"`
+	// `aws_rds`, `gcp_cloudsql`, `azure`, `digitalocean` or `self_hosted`, as the agent detected it.
+	Provider   *string  `json:"provider"`
+	Database   *string  `json:"database"`
+	SizeBytes  *int64   `json:"size_bytes"`
+	Extensions []string `json:"extensions"`
+	TableCount int      `json:"table_count"`
+}
+
+// DatabaseImportReadiness is the API's database import readiness object.
+// The latest pre-flight; null until the agent ran one.
+type DatabaseImportReadiness struct {
+	CheckedAt time.Time `json:"checked_at"`
+	// A blocking issue stops the import until it is fixed and readiness is checked again.
+	Blocked bool                  `json:"blocked"`
+	Issues  []DatabaseImportIssue `json:"issues"`
+	Source  DatabaseImportSource  `json:"source"`
+}
+
+// DatabaseImportDestination is the API's database import destination object.
+// What your Pantech database reported over the import's own connection; null
+// in a list. Numbers are nil until measured.
+type DatabaseImportDestination struct {
+	// The import login's state on the destination.
+	// One of: not_prepared, requested, active, revoking, revoked, failed.
+	AccessState        string  `json:"access_state"`
+	Measured           bool    `json:"measured"`
+	Engine             *string `json:"engine"`
+	ServerVersion      *string `json:"server_version"`
+	DiskAvailableBytes *int64  `json:"disk_available_bytes"`
+	DiskTotalBytes     *int64  `json:"disk_total_bytes"`
+	// Tables already in the target database; an import needs an empty one.
+	TargetTables      *int     `json:"target_tables"`
+	TrustedExtensions []string `json:"trusted_extensions"`
+}
+
+// DatabaseImportVerification is the API's database import verification object.
+// The table's comparison; null until it was verified.
+type DatabaseImportVerification struct {
+	SourceRows      int64 `json:"source_rows"`
+	DestinationRows int64 `json:"destination_rows"`
+	// Key ranges whose rows were checksummed on both sides.
+	SamplesChecked    int  `json:"samples_checked"`
+	MismatchedSamples int  `json:"mismatched_samples"`
+	Passed            bool `json:"passed"`
+}
+
+// DatabaseImportTable is one table's progress in a database import.
+type DatabaseImportTable struct {
+	Schema        *string `json:"schema"`
+	Name          string  `json:"name"`
+	HasPrimaryKey bool    `json:"has_primary_key"`
+	// One of: pending, copying, copied, verified, verify_failed.
+	Status       string                      `json:"status"`
+	PagesCopied  int64                       `json:"pages_copied"`
+	RowsCopied   int64                       `json:"rows_copied"`
+	BytesCopied  int64                       `json:"bytes_copied"`
+	Verification *DatabaseImportVerification `json:"verification"`
+	UpdatedAt    time.Time                   `json:"updated_at"`
+}
+
+// DatabaseImport is the API's database import object: one of a plan's
+// databases moved into a Pantech database through the Migrate agent.
+type DatabaseImport struct {
+	ID                    string `json:"id"`
+	MigrationID           string `json:"migration_id"`
+	ItemKey               string `json:"item_key"`
+	DestinationDatabaseID string `json:"destination_database_id"`
+	TargetDatabase        string `json:"target_database"`
+	// One of: dump, replicate.
+	Mode      string `json:"mode"`
+	SourceRef string `json:"source_ref"`
+	// The source's engine family. One of: postgres, mysql, mariadb.
+	Engine string `json:"engine"`
+	// One of: awaiting_agent, preflight, ready, blocked, copying, replicating, cutting_over,
+	// verifying, verifying_failed, completed, cancelling, cancelled, failed.
+	Status           string                 `json:"status"`
+	Failure          *DatabaseImportFailure `json:"failure"`
+	CutoverRequested bool                   `json:"cutover_requested"`
+	CancelRequested  bool                   `json:"cancel_requested"`
+	// A new pre-flight was asked for and the agent has not run it yet.
+	ReadinessRequested bool `json:"readiness_requested"`
+	// The import login and its loopback-only access were removed from the destination.
+	AccessRevoked bool `json:"access_revoked"`
+	// A Migrate agent holds this import now.
+	AgentConnected bool `json:"agent_connected"`
+	// Replication lag in bytes of source WAL not yet applied; nil in a dump or before replication
+	// starts.
+	LagBytes *int64 `json:"lag_bytes"`
+	// The last applied source position (replicate only).
+	Position    *string                    `json:"position"`
+	Readiness   *DatabaseImportReadiness   `json:"readiness"`
+	Destination *DatabaseImportDestination `json:"destination"`
+	// Per-table progress; nil in a list.
+	Tables []DatabaseImportTable `json:"tables"`
+	// Always false: moving data is free. The destination database bills as usual.
+	Charged    bool       `json:"charged"`
+	Version    int        `json:"version"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+}
+
+// KubernetesMoveFailure is the API's Kubernetes move failure object.
+// Why the move, or its last step, failed; null when nothing failed. Message
+// is safe to show.
+type KubernetesMoveFailure struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// KubernetesMoveFlag is a finding of a Kubernetes move.
+type KubernetesMoveFlag struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// KubernetesMoveRef names one Kubernetes object.
+type KubernetesMoveRef struct {
+	// API group; empty for the core API.
+	Group     string `json:"group"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+}
+
+// KubernetesMoveOptions are what a Kubernetes move was started with.
+type KubernetesMoveOptions struct {
+	IncludeSecrets       bool     `json:"include_secrets"`
+	CopyVolumes          bool     `json:"copy_volumes"`
+	PublishLoadBalancers bool     `json:"publish_load_balancers"`
+	Namespaces           []string `json:"namespaces"`
+}
+
+// KubernetesMoveSummary counts what a Kubernetes move found.
+type KubernetesMoveSummary struct {
+	Objects  int                  `json:"objects"`
+	Refused  int                  `json:"refused"`
+	Skipped  int                  `json:"skipped"`
+	Flagged  int                  `json:"flagged"`
+	Volumes  int                  `json:"volumes"`
+	Warnings []KubernetesMoveFlag `json:"warnings"`
+	Addons   []string             `json:"addons"`
+}
+
+// KubernetesMove is the API's Kubernetes move object: a plan's
+// kubernetes_cluster item moved into one of your Pantech clusters.
+type KubernetesMove struct {
+	// `kmv_…`.
+	ID           string `json:"id"`
+	MigrationID  string `json:"migration_id"`
+	ItemKey      string `json:"item_key"`
+	ConnectionID string `json:"connection_id"`
+	// The Pantech cluster the move applies to: always one of your organization's.
+	ClusterID  string `json:"cluster_id"`
+	SourceName string `json:"source_name"`
+	// One of: exporting, ready, previewing, applying, applied, syncing, cutting_over, completed,
+	// failed, cancelled.
+	Status          string                 `json:"status"`
+	Failure         *KubernetesMoveFailure `json:"failure"`
+	Options         KubernetesMoveOptions  `json:"options"`
+	Summary         KubernetesMoveSummary  `json:"summary"`
+	AllowPrivileged []KubernetesMoveRef    `json:"allow_privileged"`
+	PreviewedAt     *time.Time             `json:"previewed_at"`
+	PreviewOK       bool                   `json:"preview_ok"`
+	AppliedAt       *time.Time             `json:"applied_at"`
+	CompletedAt     *time.Time             `json:"completed_at"`
+	SyncGeneration  int                    `json:"sync_generation"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+}
+
+// KubernetesMoveStep is the API's Kubernetes move step object.
+// The object's outcome in the last preview or apply; null when it has not run.
+type KubernetesMoveStep struct {
+	// One of: created, configured, unchanged, refused, unverified.
+	Result  string  `json:"result"`
+	Code    *string `json:"code"`
+	Message *string `json:"message"`
+}
+
+// KubernetesMoveResource is one source object and what the move does with it
+// (names only, never values).
+type KubernetesMoveResource struct {
+	Group      string `json:"group"`
+	Kind       string `json:"kind"`
+	Namespace  string `json:"namespace"`
+	Name       string `json:"name"`
+	APIVersion string `json:"api_version"`
+	// Apply order: definitions first, custom resources last.
+	Tier int `json:"tier"`
+	// One of: create, refused, skipped.
+	Action string               `json:"action"`
+	Flags  []KubernetesMoveFlag `json:"flags"`
+	// Refused for the cluster policy; name it in AllowPrivileged on preview to include it anyway.
+	PolicyRefused bool                `json:"policy_refused"`
+	Preview       *KubernetesMoveStep `json:"preview"`
+	Apply         *KubernetesMoveStep `json:"apply"`
+}
+
+// KubernetesMoveVolume is one volume a Kubernetes move copies.
+type KubernetesMoveVolume struct {
+	ID                 string   `json:"id"`
+	Namespace          string   `json:"namespace"`
+	Claim              string   `json:"claim"`
+	SizeBytes          int64    `json:"size_bytes"`
+	SourceStorageClass string   `json:"source_storage_class"`
+	TargetStorageClass string   `json:"target_storage_class"`
+	AccessModes        []string `json:"access_modes"`
+	// One of: pending, copying, synced, failed, unsupported.
+	Status           string               `json:"status"`
+	Flags            []KubernetesMoveFlag `json:"flags"`
+	Generation       int                  `json:"generation"`
+	SyncedGeneration int                  `json:"synced_generation"`
+	BytesTotal       int64                `json:"bytes_total"`
+	BytesDone        int64                `json:"bytes_done"`
+	FilesTotal       int64                `json:"files_total"`
+	// The destination's own read-back matched the source's checksum.
+	ChecksumVerified bool                   `json:"checksum_verified"`
+	SyncedAt         *time.Time             `json:"synced_at"`
+	Failure          *KubernetesMoveFailure `json:"failure"`
+}
+
+// KubernetesMoveImage is a container image a Kubernetes move found.
+type KubernetesMoveImage struct {
+	Image string               `json:"image"`
+	Flags []KubernetesMoveFlag `json:"flags"`
+}
+
+// KubernetesMoveHold is a workload applied scaled down (or suspended) until
+// the cutover, and what the cutover returns it to.
+type KubernetesMoveHold struct {
+	Group     string `json:"group"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Replicas  int    `json:"replicas"`
+	Suspend   bool   `json:"suspend"`
+}
+
+// KubernetesMoveDetail is a Kubernetes move with its report.
+type KubernetesMoveDetail struct {
+	KubernetesMove
+	Resources []KubernetesMoveResource `json:"resources"`
+	Volumes   []KubernetesMoveVolume   `json:"volumes"`
+	Images    []KubernetesMoveImage    `json:"images"`
+	Holds     []KubernetesMoveHold     `json:"holds"`
+}
+
+// KubernetesMoveSourceAccess is the manifests to apply to the source cluster.
+type KubernetesMoveSourceAccess struct {
+	// Read-only access (get, list, watch; no Secrets).
+	Reader string `json:"reader"`
+	// Adds reading Secrets. Apply only to move Secrets.
+	SecretsReader string `json:"secrets_reader"`
+	// Lets the agent start copy pods. Bind it in each namespace whose volumes you copy.
+	Copier string `json:"copier"`
+}
+
+// StartKubernetesMoveRequest is the API's start Kubernetes move request object.
+type StartKubernetesMoveRequest struct {
+	// A `kubernetes_cluster` item of the plan.
+	ItemKey string `json:"item_key"`
+	// A running Pantech cluster of your organization.
+	ClusterID string `json:"cluster_id"`
+	// Default false.
+	IncludeSecrets *bool `json:"include_secrets,omitempty"`
+	// Default false.
+	CopyVolumes *bool `json:"copy_volumes,omitempty"`
+	// Default true.
+	PublishLoadBalancers *bool    `json:"publish_load_balancers,omitempty"`
+	Namespaces           []string `json:"namespaces,omitempty"`
+}
+
+// PreviewKubernetesMoveRequest is the API's preview Kubernetes move request object.
+type PreviewKubernetesMoveRequest struct {
+	// Workloads the cluster policy refused that you choose to include anyway.
+	AllowPrivileged []KubernetesMoveRef `json:"allow_privileged,omitempty"`
+}
+
+// CutoverKubernetesMoveRequest is the API's cutover Kubernetes move request object.
+type CutoverKubernetesMoveRequest struct {
+	// Must be true: writes on the source have stopped.
+	SourceWritesStopped bool `json:"source_writes_stopped"`
 }
 
 // DNSZone is the API's DNS zone object.

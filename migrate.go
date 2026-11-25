@@ -6,13 +6,15 @@ import (
 	"net/url"
 )
 
-// Cloud connection statuses. Connected and failed are final until the role
-// ARN changes or a retry is asked for.
+// Cloud connection statuses. Connected and failed are final until what the
+// setup printed changes, an agent enrolls, or a retry is asked for.
+// Federated providers start awaiting_role, agent providers awaiting_agent.
 const (
-	CloudConnectionAwaitingRole = "awaiting_role"
-	CloudConnectionVerifying    = "verifying"
-	CloudConnectionConnected    = "connected"
-	CloudConnectionFailed       = "failed"
+	CloudConnectionAwaitingRole  = "awaiting_role"
+	CloudConnectionAwaitingAgent = "awaiting_agent"
+	CloudConnectionVerifying     = "verifying"
+	CloudConnectionConnected     = "connected"
+	CloudConnectionFailed        = "failed"
 )
 
 // Cloud scan statuses. Succeeded and failed are final.
@@ -23,9 +25,14 @@ const (
 	CloudScanFailed    = "failed"
 )
 
-// MigrateService moves you from another cloud: it connects an AWS account
-// through a read-only role (no access keys are shared), scans what runs
-// there, and plans the move to Pantech with prices and a Terraform export.
+// MigrateService moves you from another cloud. It connects an account read
+// only: AWS, Google Cloud, Azure and Huawei Cloud through tokens Pantech signs
+// and your cloud trusts (no access keys are shared), and DigitalOcean,
+// Hetzner, Linode, Vultr, Contabo and OpenStack through the Pantech Migrate
+// agent, which keeps your read-only token on your machine. It scans what runs
+// there and plans the move to Pantech with prices and a Terraform export, then
+// moves it: bucket imports, server copies, database imports, Kubernetes moves
+// and invites for the people the plan lists.
 type MigrateService struct{ c *Client }
 
 // ListConnections lists cloud connections: GET /cloud-connections.
@@ -35,9 +42,13 @@ func (s *MigrateService) ListConnections(ctx context.Context, opts ...RequestOpt
 	return listAll[CloudConnection](ctx, s.c, "/cloud-connections", nil, opts...)
 }
 
-// CreateConnection starts a connection to an AWS account: POST /cloud-connections.
-// Its Setup holds the template (and QuickCreateURL) that creates the
-// read-only role; send the stack's RoleArn output with UpdateConnection.
+// CreateConnection starts a connection to another cloud's account: POST /cloud-connections.
+// Provider defaults to aws; ListProviders lists the others. Its Setup holds
+// what to run there: for AWS the template (and QuickCreateURL) that creates
+// the read-only role, whose RoleArn output goes to UpdateConnection; for
+// Google Cloud, Azure and Huawei Cloud a script or steps whose output goes to
+// UpdateConnection's GCP, Azure or Huawei; for agent providers how to run the
+// agent, enrolled with CreateAgentEnrollment.
 // Scope: write.
 func (s *MigrateService) CreateConnection(ctx context.Context, req CreateCloudConnectionRequest, opts ...RequestOption) (*CloudConnection, error) {
 	var out CloudConnection
@@ -57,9 +68,10 @@ func (s *MigrateService) GetConnection(ctx context.Context, connectionID string,
 	return &out, nil
 }
 
-// UpdateConnection renames a connection, sets its role ARN, or retries a
-// failed check: PATCH /cloud-connections/{connection_id}. Setting RoleARN or
-// Retry queues a verification; follow it with WaitForConnection.
+// UpdateConnection renames a connection, sends what its setup printed (the
+// AWS role ARN, or the Google Cloud, Azure or Huawei Cloud federation), or
+// retries a failed check: PATCH /cloud-connections/{connection_id}. Sending
+// any of those or Retry queues a verification; follow it with WaitForConnection.
 // Scope: write.
 func (s *MigrateService) UpdateConnection(ctx context.Context, connectionID string, req UpdateCloudConnectionRequest, opts ...RequestOption) (*CloudConnection, error) {
 	var out CloudConnection
@@ -194,8 +206,9 @@ func (e *CloudFailureError) Error() string {
 
 // WaitForConnection polls GET /cloud-connections/{id} until the connection is
 // connected, and returns it. A failed check returns it with a
-// *CloudFailureError. A connection still awaiting its role ARN is waited on
-// too, so set the ARN with UpdateConnection first. opts may be nil.
+// *CloudFailureError. A connection still awaiting its role (or its agent) is
+// waited on too, so send what the setup printed with UpdateConnection, or
+// enroll the agent, first. opts may be nil.
 func (s *MigrateService) WaitForConnection(ctx context.Context, connectionID string, opts *WaitOptions) (*CloudConnection, error) {
 	var last *CloudConnection
 	err := s.c.poll(ctx, opts, func(ctx context.Context) (bool, error) {
