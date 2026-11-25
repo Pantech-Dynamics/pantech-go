@@ -351,83 +351,9 @@ var operationMethods = map[string]any{
 // testdata does not list yet, with the route from the API contract, so
 // TestSpecRoutes checks them too. Remove an entry once the spec has it.
 var aheadOfSpec = map[string]specOperation{
-	"getInstanceAddressRotation":    {method: http.MethodGet, path: "/instances/{instance_id}/address-rotation"},
-	"putInstanceAddressRotation":    {method: http.MethodPut, path: "/instances/{instance_id}/address-rotation"},
-	"deleteInstanceAddressRotation": {method: http.MethodDelete, path: "/instances/{instance_id}/address-rotation"},
-	"rotateInstanceAddressNow":      {method: http.MethodPost, path: "/instances/{instance_id}/address-rotation/rotate"},
-	"getObjectStorage":              {method: http.MethodGet, path: "/object-storage"},
-	"getObjectStorageUsage":         {method: http.MethodGet, path: "/object-storage/usage"},
-	"listObjectStorageKeys":         {method: http.MethodGet, path: "/object-storage/keys"},
-	"createObjectStorageKey":        {method: http.MethodPost, path: "/object-storage/keys"},
-	"revokeObjectStorageKey":        {method: http.MethodDelete, path: "/object-storage/keys/{storage_key_id}"},
-	"listBuckets":                   {method: http.MethodGet, path: "/buckets"},
-	"createBucket":                  {method: http.MethodPost, path: "/buckets"},
-	"getBucket":                     {method: http.MethodGet, path: "/buckets/{bucket_id}"},
-	"updateBucket":                  {method: http.MethodPatch, path: "/buckets/{bucket_id}"},
-	"deleteBucket":                  {method: http.MethodDelete, path: "/buckets/{bucket_id}"},
-	"getBucketStats":                {method: http.MethodGet, path: "/buckets/{bucket_id}/stats"},
-	"emptyBucket":                   {method: http.MethodPost, path: "/buckets/{bucket_id}/empty"},
-	"listBucketObjects":             {method: http.MethodGet, path: "/buckets/{bucket_id}/objects"},
-	"getBucketObjectMeta":           {method: http.MethodGet, path: "/buckets/{bucket_id}/objects/meta"},
-	"downloadBucketObject":          {method: http.MethodGet, path: "/buckets/{bucket_id}/objects/download"},
-	"presignBucketObjectDownload":   {method: http.MethodPost, path: "/buckets/{bucket_id}/objects/download-url"},
-	"uploadBucketObject":            {method: http.MethodPut, path: "/buckets/{bucket_id}/objects/upload"},
-	"presignBucketObjectUpload":     {method: http.MethodPost, path: "/buckets/{bucket_id}/objects/upload-url"},
-	"createBucketFolder":            {method: http.MethodPost, path: "/buckets/{bucket_id}/objects/folder"},
-	"copyBucketObject":              {method: http.MethodPost, path: "/buckets/{bucket_id}/objects/copy"},
-	"deleteBucketObjects":           {method: http.MethodPost, path: "/buckets/{bucket_id}/objects/delete"},
-	"putBucketObjectTags":           {method: http.MethodPut, path: "/buckets/{bucket_id}/objects/tags"},
-	"putBucketObjectLock":           {method: http.MethodPut, path: "/buckets/{bucket_id}/objects/lock"},
-	"putBucketObjectVisibility":     {method: http.MethodPut, path: "/buckets/{bucket_id}/objects/visibility"},
-	"startBucketMultipartUpload":    {method: http.MethodPost, path: "/buckets/{bucket_id}/objects/multipart/start"},
-	"signBucketMultipartPart":       {method: http.MethodPost, path: "/buckets/{bucket_id}/objects/multipart/sign-part"},
-	"uploadBucketMultipartPart":     {method: http.MethodPut, path: "/buckets/{bucket_id}/objects/multipart/part"},
-	"completeBucketMultipartUpload": {method: http.MethodPost, path: "/buckets/{bucket_id}/objects/multipart/complete"},
-	"abortBucketMultipartUpload":    {method: http.MethodPost, path: "/buckets/{bucket_id}/objects/multipart/abort"},
-	"getBucketCORS":                 {method: http.MethodGet, path: "/buckets/{bucket_id}/cors"},
-	"putBucketCORS":                 {method: http.MethodPut, path: "/buckets/{bucket_id}/cors"},
-	"getBucketLifecycle":            {method: http.MethodGet, path: "/buckets/{bucket_id}/lifecycle"},
-	"putBucketLifecycle":            {method: http.MethodPut, path: "/buckets/{bucket_id}/lifecycle"},
-	"getBucketTags":                 {method: http.MethodGet, path: "/buckets/{bucket_id}/tags"},
-	"putBucketTags":                 {method: http.MethodPut, path: "/buckets/{bucket_id}/tags"},
-	"getBucketObjectLock":           {method: http.MethodGet, path: "/buckets/{bucket_id}/object-lock"},
-	"putBucketObjectLockConfig":     {method: http.MethodPut, path: "/buckets/{bucket_id}/object-lock"},
-	// Pantech Migrate for every supported cloud, and the moves.
-	"listCloudProviders":              {method: http.MethodGet, path: "/cloud-providers"},
-	"createCloudAgentEnrollment":      {method: http.MethodPost, path: "/cloud-connections/{connection_id}/agent-enrollments"},
-	"revokeCloudAgent":                {method: http.MethodDelete, path: "/cloud-connections/{connection_id}/agent"},
-	"sendMigrationInvites":            {method: http.MethodPost, path: "/migrations/{migration_id}/invites"},
-	"getCopyAccess":                   {method: http.MethodGet, path: "/cloud-connections/{connection_id}/copy-access"},
-	"putCopyAccess":                   {method: http.MethodPut, path: "/cloud-connections/{connection_id}/copy-access"},
-	"listBucketImports":               {method: http.MethodGet, path: "/bucket-imports"},
-	"startBucketImport":               {method: http.MethodPost, path: "/bucket-imports"},
-	"getBucketImport":                 {method: http.MethodGet, path: "/bucket-imports/{import_id}"},
-	"cancelBucketImport":              {method: http.MethodPost, path: "/bucket-imports/{import_id}/cancel"},
-	"resyncBucketImport":              {method: http.MethodPost, path: "/bucket-imports/{import_id}/resync"},
-	"startServerCopy":                 {method: http.MethodPost, path: "/migrations/{migration_id}/server-copies"},
-	"getServerCopyTemplate":           {method: http.MethodGet, path: "/migrations/{migration_id}/server-copy-template"},
-	"listServerCopies":                {method: http.MethodGet, path: "/server-copies"},
-	"getServerCopy":                   {method: http.MethodGet, path: "/server-copies/{copy_id}"},
-	"syncServerCopy":                  {method: http.MethodPost, path: "/server-copies/{copy_id}/sync"},
-	"cutOverServerCopy":               {method: http.MethodPost, path: "/server-copies/{copy_id}/cutover"},
-	"cancelServerCopy":                {method: http.MethodPost, path: "/server-copies/{copy_id}/cancel"},
-	"startDatabaseImport":             {method: http.MethodPost, path: "/migrations/{migration_id}/database-imports"},
-	"listDatabaseImports":             {method: http.MethodGet, path: "/database-imports"},
-	"getDatabaseImport":               {method: http.MethodGet, path: "/database-imports/{import_id}"},
-	"checkDatabaseImportReadiness":    {method: http.MethodPost, path: "/database-imports/{import_id}/readiness"},
-	"cutOverDatabaseImport":           {method: http.MethodPost, path: "/database-imports/{import_id}/cutover"},
-	"cancelDatabaseImport":            {method: http.MethodPost, path: "/database-imports/{import_id}/cancel"},
-	"revokeDatabaseImportAccess":      {method: http.MethodPost, path: "/database-imports/{import_id}/revoke-access"},
-	"startKubernetesMove":             {method: http.MethodPost, path: "/migrations/{migration_id}/kubernetes-moves"},
-	"listKubernetesMoves":             {method: http.MethodGet, path: "/kubernetes-moves"},
-	"getKubernetesMoveSourceAccess":   {method: http.MethodGet, path: "/kubernetes-moves/source-access"},
-	"getKubernetesMove":               {method: http.MethodGet, path: "/kubernetes-moves/{move_id}"},
-	"previewKubernetesMove":           {method: http.MethodPost, path: "/kubernetes-moves/{move_id}/preview"},
-	"applyKubernetesMove":             {method: http.MethodPost, path: "/kubernetes-moves/{move_id}/apply"},
-	"syncKubernetesMoveVolumes":       {method: http.MethodPost, path: "/kubernetes-moves/{move_id}/sync-volumes"},
-	"cutoverKubernetesMove":           {method: http.MethodPost, path: "/kubernetes-moves/{move_id}/cutover"},
-	"cancelKubernetesMove":            {method: http.MethodPost, path: "/kubernetes-moves/{move_id}/cancel"},
-	"downloadKubernetesMoveManifests": {method: http.MethodGet, path: "/kubernetes-moves/{move_id}/manifests"},
+	// The published spec names this route putBucketObjectLock as well as the
+	// object's own lock; the SDK keeps the two apart.
+	"putBucketObjectLockConfig": {method: http.MethodPut, path: "/buckets/{bucket_id}/object-lock"},
 }
 
 // notInSDK are spec operations the SDK deliberately has no method for yet,
@@ -435,18 +361,63 @@ var aheadOfSpec = map[string]specOperation{
 // Pantech's MCP server; a standard API key gets 403
 // AGENT_SESSIONS_NOT_FOR_API_KEYS. Remove an entry when its method is added.
 var notInSDK = map[string]string{
-	"getInstanceAgent":       "agent sessions: MCP-connected AI apps only",
-	"startAgentSession":      "agent sessions: MCP-connected AI apps only",
-	"listAgentSessions":      "agent sessions: MCP-connected AI apps only",
-	"getAgentSession":        "agent sessions: MCP-connected AI apps only",
-	"messageAgentSession":    "agent sessions: MCP-connected AI apps only",
-	"callAgentTool":          "agent sessions: MCP-connected AI apps only",
-	"getAgentToolCall":       "agent sessions: MCP-connected AI apps only",
-	"listAgentSessionEvents": "agent sessions: MCP-connected AI apps only",
-	"decideAgentApproval":    "agent sessions: MCP-connected AI apps only",
-	"terminateAgentSession":  "agent sessions: MCP-connected AI apps only",
-	"getAgentSessionReport":  "agent sessions: MCP-connected AI apps only",
-	"setUpInstanceAgent":     "agent sessions: MCP-connected AI apps only",
+	// In the published spec, not yet wrapped by a method.
+	"getDatabaseCACertificate": "not wrapped yet; call Client.Do",
+	"listFunctions":            "functions: not wrapped yet; call Client.Do",
+	"createFunction":           "functions: not wrapped yet; call Client.Do",
+	"getFunction":              "functions: not wrapped yet; call Client.Do",
+	"updateFunction":           "functions: not wrapped yet; call Client.Do",
+	"deleteFunction":           "functions: not wrapped yet; call Client.Do",
+	"deployFunction":           "functions: not wrapped yet; call Client.Do",
+	"listFunctionKeys":         "functions: not wrapped yet; call Client.Do",
+	"createFunctionKey":        "functions: not wrapped yet; call Client.Do",
+	"revokeFunctionKey":        "functions: not wrapped yet; call Client.Do",
+	"listFunctionInvocations":  "functions: not wrapped yet; call Client.Do",
+	"invokeFunction":           "functions: not wrapped yet; call Client.Do",
+	"getFunctionInvocation":    "functions: not wrapped yet; call Client.Do",
+	"getFunctionMetrics":       "functions: not wrapped yet; call Client.Do",
+	"listFunctionSchedules":    "functions: not wrapped yet; call Client.Do",
+	"createFunctionSchedule":   "functions: not wrapped yet; call Client.Do",
+	"updateFunctionSchedule":   "functions: not wrapped yet; call Client.Do",
+	"deleteFunctionSchedule":   "functions: not wrapped yet; call Client.Do",
+	"listFunctionVersions":     "functions: not wrapped yet; call Client.Do",
+	"activateFunctionVersion":  "functions: not wrapped yet; call Client.Do",
+	"resetInstancePassword":    "not wrapped yet; call Client.Do",
+	"listEmailDomains":         "email: not wrapped yet; call Client.Do",
+	"createEmailDomain":        "email: not wrapped yet; call Client.Do",
+	"getEmailDomain":           "email: not wrapped yet; call Client.Do",
+	"deleteEmailDomain":        "email: not wrapped yet; call Client.Do",
+	"verifyEmailDomain":        "email: not wrapped yet; call Client.Do",
+	"listEmailSendingKeys":     "email: not wrapped yet; call Client.Do",
+	"createEmailSendingKey":    "email: not wrapped yet; call Client.Do",
+	"revokeEmailSendingKey":    "email: not wrapped yet; call Client.Do",
+	"sendEmail":                "email: not wrapped yet; call Client.Do",
+	"listEmails":               "email: not wrapped yet; call Client.Do",
+	"sendEmailBatch":           "email: not wrapped yet; call Client.Do",
+	"getEmail":                 "email: not wrapped yet; call Client.Do",
+	"rescheduleEmail":          "email: not wrapped yet; call Client.Do",
+	"listEmailEvents":          "email: not wrapped yet; call Client.Do",
+	"cancelEmail":              "email: not wrapped yet; call Client.Do",
+	"getEmailSending":          "email: not wrapped yet; call Client.Do",
+	"getEmailPacks":            "email: not wrapped yet; call Client.Do",
+	"buyEmailPacks":            "email: not wrapped yet; call Client.Do",
+	"listEmailPackOrders":      "email: not wrapped yet; call Client.Do",
+	"getEmailPackOrder":        "email: not wrapped yet; call Client.Do",
+	"listEmailSuppressions":    "email: not wrapped yet; call Client.Do",
+	"addEmailSuppression":      "email: not wrapped yet; call Client.Do",
+	"removeEmailSuppression":   "email: not wrapped yet; call Client.Do",
+	"getInstanceAgent":         "agent sessions: MCP-connected AI apps only",
+	"startAgentSession":        "agent sessions: MCP-connected AI apps only",
+	"listAgentSessions":        "agent sessions: MCP-connected AI apps only",
+	"getAgentSession":          "agent sessions: MCP-connected AI apps only",
+	"messageAgentSession":      "agent sessions: MCP-connected AI apps only",
+	"callAgentTool":            "agent sessions: MCP-connected AI apps only",
+	"getAgentToolCall":         "agent sessions: MCP-connected AI apps only",
+	"listAgentSessionEvents":   "agent sessions: MCP-connected AI apps only",
+	"decideAgentApproval":      "agent sessions: MCP-connected AI apps only",
+	"terminateAgentSession":    "agent sessions: MCP-connected AI apps only",
+	"getAgentSessionReport":    "agent sessions: MCP-connected AI apps only",
+	"setUpInstanceAgent":       "agent sessions: MCP-connected AI apps only",
 }
 
 // specOperation is one operation read from the spec.
@@ -557,12 +528,19 @@ func TestSpecRoutes(t *testing.T) {
 	c := newTestClientAt(t, srv.URL)
 
 	routes := map[string]specOperation{}
-	for id, op := range aheadOfSpec {
-		op.id = id
-		routes[id] = op
-	}
 	for _, op := range readSpecOperations(t, "testdata/public-api.yaml") {
-		routes[op.id] = op
+		// The first route with an id wins: the published spec gives
+		// putBucketObjectLock to two routes, the object's lock and then the
+		// bucket's default (putBucketObjectLockConfig here).
+		if _, seen := routes[op.id]; !seen {
+			routes[op.id] = op
+		}
+	}
+	for id, op := range aheadOfSpec {
+		if _, inSpec := routes[id]; !inSpec {
+			op.id = id
+			routes[id] = op
+		}
 	}
 
 	for id, fn := range operationMethods {

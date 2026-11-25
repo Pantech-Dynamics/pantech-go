@@ -35,12 +35,17 @@ func (s *MigrateService) ListProviders(ctx context.Context, opts ...RequestOptio
 	return listAll[CloudProvider](ctx, s.c, "/cloud-providers", nil, opts...)
 }
 
-// CreateAgentEnrollment issues a one-time enrollment code for a connection
-// read by the Pantech Migrate agent: POST /cloud-connections/{connection_id}/agent-enrollments.
-// The code is shown only in this answer and works once, for an hour; run
+// CreateAgentEnrollment issues a one-time enrollment code for a connection's
+// Pantech Migrate agent: POST /cloud-connections/{connection_id}/agent-enrollments.
+// Any connection may have an agent. On AWS, Google Cloud, Azure and Huawei
+// Cloud, Pantech scans the cloud itself and the agent runs server copies,
+// database imports and Kubernetes moves; on the other clouds it scans too.
+// A connection has one agent: redeeming the code replaces the connection's
+// earlier agent, including when the agent is enrolled on a server to copy
+// it. The code is shown only in this answer and works once, for an hour; run
 // EnrollCommand where the agent will run. Issuing a code replaces any unused
 // one. Each call issues a new code, so it is never retried after a lost
-// answer. 409 CLOUD_CONNECTION_NOT_AGENT for a federated connection.
+// answer.
 // Scope: write.
 func (s *MigrateService) CreateAgentEnrollment(ctx context.Context, connectionID string, opts ...RequestOption) (*CloudAgentEnrollment, error) {
 	var out CloudAgentEnrollment
@@ -52,7 +57,8 @@ func (s *MigrateService) CreateAgentEnrollment(ctx context.Context, connectionID
 
 // RevokeAgent ends a connection's Migrate agent at once and returns the
 // connection, which then waits for a new agent: DELETE /cloud-connections/{connection_id}/agent.
-// Revoking again changes nothing.
+// It also ends the agent's server copy uploads in progress; a copy carries on
+// once an agent is enrolled again. Revoking again changes nothing.
 // Scope: write.
 func (s *MigrateService) RevokeAgent(ctx context.Context, connectionID string, opts ...RequestOption) (*CloudConnection, error) {
 	var out CloudConnection

@@ -7,6 +7,23 @@ publishes a GitHub release with that section as its notes.
 
 ## Unreleased
 
+## v0.6.1 — 2026-11-25
+
+### Changed
+
+- The vendored spec is the one now published. `CreateAgentEnrollment` and `RevokeAgent` work on
+  every connection: AWS, Google Cloud, Azure and Huawei Cloud connections can have an agent too,
+  for server copies, database imports and Kubernetes moves (Pantech still scans those clouds
+  itself), and enrollment no longer answers `409 CLOUD_CONNECTION_NOT_AGENT`. The doc comments say
+  so, and that a connection has one agent, so enrolling one on a server to copy it replaces the
+  connection's agent until it is enrolled again. `RevokeAgent` also ends the agent's server copy
+  uploads in progress.
+- `CloudConnectionSetup.Agent` is set for any connection while the agent is available, and
+  `CloudAgentSetup.DownloadURL` is nil when no binaries are published: use `Image`.
+- Operations in the published spec that the SDK does not wrap yet (functions, email, instance
+  password reset and the database CA certificate) are listed as such in the coverage test; call
+  them with `Client.Do`.
+
 ## v0.6.0 — 2026-11-25
 
 ### Added

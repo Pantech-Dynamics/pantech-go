@@ -213,6 +213,9 @@ the Terraform or start a move. `c.Migrate.ListProviders` lists the clouds it can
 - DigitalOcean, Hetzner, Linode, Vultr, Contabo and OpenStack are read by the Pantech Migrate agent,
   which you run on your own machine with a read-only token that never leaves it.
 
+Any connection, AWS, Google Cloud, Azure and Huawei Cloud included, can have one agent for the copy
+steps that read from inside your network: server copies, database imports and Kubernetes moves.
+
 ```go
 conn, err := c.Migrate.CreateConnection(ctx, pantech.CreateCloudConnectionRequest{Name: "Production AWS"})
 // Create the stack from *conn.Setup.QuickCreateURL (or conn.Setup.Template) in AWS, then:
@@ -229,8 +232,8 @@ fmt.Println(plan.Estimate.PantechMonthlyMinor, plan.Estimate.SourceMonthlyMinor)
 tf, err := c.Migrate.ExportTerraform(ctx, plan.ID) // tf.Files: main.tf, variables.tf
 ```
 
-For an agent provider, enroll the agent where it will run; the code is shown once and works for an
-hour:
+To enroll a connection's agent, issue a code and run the enroll command where the agent will run;
+the code is shown once and works for an hour:
 
 ```go
 conn, err := c.Migrate.CreateConnection(ctx, pantech.CreateCloudConnectionRequest{
