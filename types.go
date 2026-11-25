@@ -2095,7 +2095,9 @@ type CloudConnectionSetup struct {
 	Files []CloudSetupFile `json:"files"`
 	// Every read-only permission the setup grants.
 	Permissions []string `json:"permissions"`
-	// How to run the Pantech Migrate agent; nil for federated providers.
+	// How to run the Pantech Migrate agent, which any connection may have; nil when the agent is
+	// not available. On a federated connection it lists no token variables: the agent there never
+	// scans.
 	Agent *CloudAgentSetup `json:"agent"`
 }
 
@@ -2105,12 +2107,12 @@ type CloudSetupFile struct {
 	Content string `json:"content"`
 }
 
-// CloudAgentSetup is the API's cloud agent setup object.
-// How to run the Pantech Migrate agent; null for federated providers.
+// CloudAgentSetup is the API's cloud agent setup object: how to run the Pantech
+// Migrate agent.
 type CloudAgentSetup struct {
 	// The agent's container image.
 	Image string `json:"image"`
-	// Where the agent's binaries are published.
+	// Where the agent's binaries are published; nil when none are, so use Image.
 	DownloadURL *string `json:"download_url"`
 	APIURL      string  `json:"api_url"`
 	// The environment variables the agent reads your read-only credential from, on your machine.
