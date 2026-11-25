@@ -48,7 +48,8 @@ publishes a GitHub release with that section as its notes.
 
 ### Changed
 
-- The vendored spec has the new Migrate operations, each with a method.
+- The new Migrate operations are listed in `aheadOfSpec` until the published spec has them; the
+  vendored spec is unchanged.
 - `CloudConnectionSetup.IssuerURL` and `Audience` are now `*string`: they are null for agent
   providers.
 
