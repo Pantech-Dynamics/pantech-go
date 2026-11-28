@@ -29,6 +29,17 @@ func (s *ObjectStorageService) GetUsage(ctx context.Context, params *ObjectStora
 	return &out, nil
 }
 
+// UpdateSettings changes organization-wide object storage settings such as
+// Block All Public Access: PATCH /object-storage/settings.
+// Scope: write.
+func (s *ObjectStorageService) UpdateSettings(ctx context.Context, req UpdateObjectStorageSettingsRequest, opts ...RequestOption) (*ObjectStorageSettings, error) {
+	var out ObjectStorageSettings
+	if err := s.c.Do(ctx, "PATCH", "/object-storage/settings", nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ListKeys lists active object storage access keys without their secrets: GET /object-storage/keys.
 // Scope: read.
 // It follows next_cursor until the list ends, so the slice holds every item.

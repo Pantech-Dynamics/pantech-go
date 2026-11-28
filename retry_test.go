@@ -138,6 +138,10 @@ func TestRoutesThatDoNotReplayAreNotRetried(t *testing.T) {
 			_, err := c.Buckets.DeleteObjects(ctx, "bkt_1", DeleteBucketObjectsRequest{Items: []DeleteBucketObjectItem{{Key: "a"}}})
 			return err
 		},
+		"POST /buckets/{id}/objects/restore-version": func(c *Client) error {
+			_, err := c.Buckets.RestoreObjectVersion(ctx, "bkt_1", RestoreBucketObjectVersionRequest{Key: "a", VersionID: Ptr("v1")})
+			return err
+		},
 		"POST /buckets/{id}/objects/multipart/start": func(c *Client) error {
 			_, err := c.Buckets.StartMultipartUpload(ctx, "bkt_1", StartMultipartUploadRequest{Key: "a"})
 			return err

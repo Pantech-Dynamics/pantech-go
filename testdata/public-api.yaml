@@ -5745,7 +5745,7 @@ paths:
                 $ref: "#/components/schemas/Problem"
         409:
           description: |-
-            `BUCKET_NAME_TAKEN`: the organization already has a bucket with that name in this region. A deleted bucket's name is free again once its removal finishes.
+            `BUCKET_NAME_TAKEN`: a bucket with that name already exists in this region, in this organization or another. Bucket names are shared by every organization. A deleted bucket's name is free again once its removal finishes.
             `IDEMPOTENCY_CONFLICT`: that idempotency key was already used for a different request.
             `ACCOUNT_SUSPENDED`: the account has an overdue invoice. Pay it under Billing in the console, then try again.
             `ACCOUNT_NOT_ACTIVE`: billing setup is not finished. Finish it under Billing in the console, then try again.
@@ -6329,6 +6329,50 @@ paths:
                         write_ops: {type: integer, format: int64}
         401: {$ref: "#/components/responses/Unauthenticated"}
         429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/object-storage/settings:
+    patch:
+      tags: [Object storage]
+      summary: Change object storage settings
+      description: "Turns Block All Public Access on or off for your organization. On, public prefixes and public objects stop being served anonymously within seconds, and making anything public is refused with `PUBLIC_ACCESS_BLOCKED`. Off, the public prefixes and objects already set are served again. Sending the current value changes nothing.\n\n**Idempotency:** setting a value is safe to retry: a retry sets the same value again.\n\n**Scope:** `write`."
+      operationId: updateObjectStorageSettings
+      security: [{apiKey: []}]
+      x-scope: write
+      x-order: 462
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/UpdateObjectStorageSettingsRequest"}
+      responses:
+        200:
+          description: The setting now in force.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ObjectStorageSettings"}
+        400:
+          description: "`IDEMPOTENCY_KEY_REQUIRED`: the `Idempotency-Key` header is missing. `INVALID_REQUEST_BODY`: the body is not a single valid JSON object."
+          content:
+            "application/problem+json":
+              schema: {$ref: "#/components/schemas/Problem"}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        403:
+          description: "`INSUFFICIENT_SCOPE`: the API key lacks the `write` scope. `FORBIDDEN`: the member who created the key may not do this. `OBJECT_STORAGE_NOT_ENABLED`: turning the block off needs object storage enabled; turning it on always works."
+          content:
+            "application/problem+json":
+              schema: {$ref: "#/components/schemas/Problem"}
+        422:
+          description: "`VALIDATION_FAILED`: `block_public_access` is required."
+          content:
+            "application/problem+json":
+              schema: {$ref: "#/components/schemas/Problem"}
+        429: {$ref: "#/components/responses/RateLimited"}
+        503:
+          description: "`OBJECT_STORAGE_UNAVAILABLE`: object storage is not available right now. Retry shortly."
+          content:
+            "application/problem+json":
+              schema: {$ref: "#/components/schemas/Problem"}
   /public/v1/buckets/{bucket_id}/stats:
     get:
       tags: [Object storage]
@@ -6456,6 +6500,7 @@ paths:
                   object_public: {type: boolean}
                   public_source: {type: string, enum: [private, object, bucket_prefix]}
                   public_url: {type: string}
+                  server_side_encryption: {type: string}
         401: {$ref: "#/components/responses/Unauthenticated"}
         429: {$ref: "#/components/responses/RateLimited"}
   /public/v1/buckets/{bucket_id}/objects/download:
@@ -6596,6 +6641,74 @@ paths:
                   expires_in_seconds: {type: integer}
         401: {$ref: "#/components/responses/Unauthenticated"}
         429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/objects/upload-form:
+    post:
+      tags: [Object storage]
+      summary: Create a browser upload form
+      description: "Signs an HTML form upload (an S3 POST policy) into the bucket, so a browser can send a file straight to storage without your server handling the bytes. Post every returned field, then the file as a field named `file` (it must come last), as `multipart/form-data` to `url`.\n\nThe form allows one object per upload: either exactly `key`, or any key starting with `key_prefix`, where the browser's file name replaces `${filename}` in the `key` field. Each upload must be between `min_bytes` and `max_bytes`, and, when `content_type` is set, must send that `Content-Type` field unchanged. The form stops working at `expires_at`. Uploaded objects are private, and the bucket's size limit applies.\n\nAnyone holding the form can upload within its bounds until it expires, so keep its lifetime short.\n\n**Scope:** `write`."
+      operationId: createBucketUploadForm
+      security: [{apiKey: []}]
+      x-scope: write
+      x-order: 470
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key: {type: string, description: "The one key the form may write. Give this or `key_prefix`."}
+                key_prefix: {type: string, description: "The form may write any key starting with this, ending in the browser's file name. Give this or `key`."}
+                min_bytes: {type: integer, format: int64, minimum: 0, default: 0, description: "The smallest file accepted."}
+                max_bytes: {type: integer, format: int64, minimum: 1, maximum: 5368709120, default: 5368709120, description: "The largest file accepted, at most 5 GiB."}
+                content_type: {type: string, maxLength: 255, description: "When set, the only content type the form may send."}
+                expires_in_seconds: {type: integer, format: int64, minimum: 60, maximum: 604800, default: 3600, description: "How long the form works: 60 seconds to 7 days."}
+      responses:
+        200:
+          description: The form to post.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, fields, expires_at, bucket_name]
+                properties:
+                  url: {type: string, description: "Where to POST the form."}
+                  fields:
+                    type: object
+                    additionalProperties: {type: string}
+                    description: "Form fields to send before the file, as given."
+                  expires_at: {type: string, format: date-time}
+                  bucket_name: {type: string}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        403:
+          description: "`INSUFFICIENT_SCOPE`: the API key lacks the `write` scope. `FORBIDDEN`: the member who created the key may not write objects to this bucket. `OBJECT_STORAGE_SUSPENDED`: object storage is suspended for this organization."
+          content:
+            "application/problem+json":
+              schema: {$ref: "#/components/schemas/Problem"}
+        404:
+          description: "`BUCKET_NOT_FOUND`: no such bucket in your organization."
+          content:
+            "application/problem+json":
+              schema: {$ref: "#/components/schemas/Problem"}
+        409:
+          description: "`BUCKET_NOT_ACTIVE`: the bucket is still being created. `IDEMPOTENCY_CONFLICT`: the key was used for a different request."
+          content:
+            "application/problem+json":
+              schema: {$ref: "#/components/schemas/Problem"}
+        422:
+          description: "`VALIDATION_FAILED`: give exactly one of `key` and `key_prefix`; `max_bytes`, `min_bytes`, `expires_in_seconds` or `content_type` is out of range."
+          content:
+            "application/problem+json":
+              schema: {$ref: "#/components/schemas/Problem"}
+        429: {$ref: "#/components/responses/RateLimited"}
+        503:
+          description: "`UPLOAD_FORMS_UNAVAILABLE`: form uploads are not available in this region yet. `OBJECT_STORAGE_UNAVAILABLE`: object storage is not available right now. Retry shortly."
+          content:
+            "application/problem+json":
+              schema: {$ref: "#/components/schemas/Problem"}
   /public/v1/buckets/{bucket_id}/objects/folder:
     post:
       tags: [Object storage]
@@ -6781,7 +6894,7 @@ paths:
       tags: [Object storage]
       summary: Update retention or legal hold on an object
       description: "Sets object-lock retention or legal hold on an object version.\n\n**Scope:** `write`."
-      operationId: putBucketObjectLock
+      operationId: putObjectLock
       security: [{apiKey: []}]
       x-scope: write
       x-order: 475
@@ -6851,6 +6964,76 @@ paths:
                   object_public: {type: boolean}
                   public_source: {type: string, enum: [private, object, bucket_prefix]}
                   public_url: {type: string}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/objects/restore-version:
+    post:
+      tags: [Object storage]
+      summary: Restore a previous object version or remove a delete marker
+      description: "Restores a historical object version as the current latest version, or removes a delete marker to undelete a soft-deleted versioned object.\n\n**Scope:** `write`."
+      operationId: restoreBucketObjectVersion
+      security: [{apiKey: []}]
+      x-scope: write
+      x-order: 475
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key: {type: string}
+                version_id: {type: string}
+      responses:
+        200:
+          description: Object version restored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [key, action, restored_version_id, version_id, etag, last_modified]
+                properties:
+                  key: {type: string}
+                  action: {type: string, enum: [copied_version, removed_delete_marker]}
+                  restored_version_id: {type: string}
+                  version_id: {type: string}
+                  etag: {type: string}
+                  last_modified: {type: string}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/objects/multipart:
+    get:
+      tags: [Object storage]
+      summary: List in-progress multipart uploads
+      description: "Lists active in-progress multipart uploads in the bucket so abandoned uploads can be inspected and aborted.\n\n**Scope:** `read`."
+      operationId: listBucketMultipartUploads
+      security: [{apiKey: []}]
+      x-scope: read
+      x-order: 476
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+      responses:
+        200:
+          description: Active multipart uploads.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [uploads]
+                properties:
+                  uploads:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, upload_id, initiated]
+                      properties:
+                        key: {type: string}
+                        upload_id: {type: string}
+                        initiated: {type: string}
         401: {$ref: "#/components/responses/Unauthenticated"}
         429: {$ref: "#/components/responses/RateLimited"}
   /public/v1/buckets/{bucket_id}/objects/multipart/start:
@@ -6928,6 +7111,53 @@ paths:
                 properties:
                   direct: {type: boolean}
                   url: {type: string}
+                  expires_in_seconds: {type: integer}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/objects/multipart/sign-parts:
+    post:
+      tags: [Object storage]
+      summary: Batch-sign direct upload URLs for multiple multipart parts
+      description: "Returns short-lived signed PUT URLs for up to 100 multipart parts in a single request.\n\n**Scope:** `write`."
+      operationId: signBucketMultipartParts
+      security: [{apiKey: []}]
+      x-scope: write
+      x-order: 478
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, upload_id, part_numbers]
+              properties:
+                key: {type: string}
+                upload_id: {type: string}
+                part_numbers:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: {type: integer, minimum: 1, maximum: 10000}
+      responses:
+        200:
+          description: Batch of signed part URLs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [parts, expires_in_seconds]
+                properties:
+                  parts:
+                    type: array
+                    items:
+                      type: object
+                      required: [part_number, url]
+                      properties:
+                        part_number: {type: integer}
+                        url: {type: string}
                   expires_in_seconds: {type: integer}
         401: {$ref: "#/components/responses/Unauthenticated"}
         429: {$ref: "#/components/responses/RateLimited"}
@@ -7358,6 +7588,327 @@ paths:
                   mode: {type: string}
                   days: {type: integer}
                   years: {type: integer}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/shared:
+    get:
+      tags: [Object storage]
+      summary: List shared buckets
+      description: "Lists buckets shared with your organization by other Pantech organizations.\n\n**Scope:** `read`."
+      operationId: listSharedBuckets
+      security: [{apiKey: []}]
+      x-scope: read
+      x-order: 489
+      responses:
+        200:
+          description: Buckets shared with this organization.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  next_cursor: {type: ["string", "null"]}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/shares:
+    get:
+      tags: [Object storage]
+      summary: List bucket shares
+      description: "Lists active cross-organization shares configured on a bucket.\n\n**Scope:** `read`."
+      operationId: listBucketShares
+      security: [{apiKey: []}]
+      x-scope: read
+      x-order: 490
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+      responses:
+        200:
+          description: Bucket shares.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  next_cursor: {type: ["string", "null"]}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+    post:
+      tags: [Object storage]
+      summary: Share bucket with another organization
+      description: "Grants another organization read_only, write_only, or read_write access to this bucket or specific key prefixes.\n\n**Scope:** `write`."
+      operationId: createBucketShare
+      security: [{apiKey: []}]
+      x-scope: write
+      x-order: 491
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grantee_organization_id, permissions]
+              properties:
+                grantee_organization_id: {type: string}
+                permissions: {type: string, enum: [read_only, write_only, read_write]}
+                prefixes: {type: array, items: {type: string}}
+                expires_at: {type: string, format: date-time}
+      responses:
+        201:
+          description: Share created.
+          content:
+            application/json:
+              schema: {type: object}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/shares/{share_id}:
+    delete:
+      tags: [Object storage]
+      summary: Revoke a bucket share
+      description: "Revokes another organization's cross-account access to this bucket.\n\n**Scope:** `delete`."
+      operationId: revokeBucketShare
+      security: [{apiKey: []}]
+      x-scope: write
+      x-destructive: true
+      x-order: 492
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {name: share_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      responses:
+        204: {description: Share revoked.}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/notifications:
+    get:
+      tags: [Object storage]
+      summary: List bucket event notifications
+      description: "Lists object event notification rules configured on this bucket.\n\n**Scope:** `read`."
+      operationId: listBucketNotifications
+      security: [{apiKey: []}]
+      x-scope: read
+      x-order: 493
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+      responses:
+        200:
+          description: Notification rules.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  next_cursor: {type: ["string", "null"]}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+    post:
+      tags: [Object storage]
+      summary: Create a bucket notification rule
+      description: "Subscribes a webhook endpoint or function to object created or removed events in this bucket.\n\n**Scope:** `write`."
+      operationId: createBucketNotification
+      security: [{apiKey: []}]
+      x-scope: write
+      x-order: 494
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, events, target_type, target_id]
+              properties:
+                name: {type: string}
+                events: {type: array, items: {type: string, enum: [object.created, object.removed]}}
+                prefix: {type: string}
+                suffix: {type: string}
+                target_type: {type: string, enum: [webhook, function]}
+                target_id: {type: string}
+                enabled: {type: boolean}
+      responses:
+        201:
+          description: Notification rule created.
+          content:
+            application/json:
+              schema: {type: object}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/notifications/{notification_id}:
+    patch:
+      tags: [Object storage]
+      summary: Update a bucket notification rule
+      description: "Updates events, prefix/suffix filters, or enabled state of a notification rule.\n\n**Scope:** `write`."
+      operationId: updateBucketNotification
+      security: [{apiKey: []}]
+      x-scope: write
+      x-order: 495
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {name: notification_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                events: {type: array, items: {type: string, enum: [object.created, object.removed]}}
+                prefix: {type: string}
+                suffix: {type: string}
+                enabled: {type: boolean}
+      responses:
+        200:
+          description: Notification rule updated.
+          content:
+            application/json:
+              schema: {type: object}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+    delete:
+      tags: [Object storage]
+      summary: Delete a bucket notification rule
+      description: "Deletes an object notification rule.\n\n**Scope:** `delete`."
+      operationId: deleteBucketNotification
+      security: [{apiKey: []}]
+      x-scope: write
+      x-destructive: true
+      x-order: 496
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {name: notification_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      responses:
+        204: {description: Notification rule deleted.}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/domains:
+    get:
+      tags: [Object storage]
+      summary: List bucket custom domains
+      description: "Lists custom domain bindings and static website settings on a bucket.\n\n**Scope:** `read`."
+      operationId: listBucketDomains
+      security: [{apiKey: []}]
+      x-scope: read
+      x-order: 497
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+      responses:
+        200:
+          description: Bucket custom domains.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  next_cursor: {type: ["string", "null"]}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+    post:
+      tags: [Object storage]
+      summary: Attach a custom domain to a bucket
+      description: "Binds a custom hostname with a Certificate Manager TLS certificate and static website settings.\n\n**Scope:** `write`."
+      operationId: createBucketDomain
+      security: [{apiKey: []}]
+      x-scope: write
+      x-order: 498
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostname, certificate_id]
+              properties:
+                hostname: {type: string}
+                certificate_id: {type: string}
+                index_document: {type: string}
+                error_document: {type: string}
+                spa_mode: {type: boolean}
+                cache_ttl_seconds: {type: integer, minimum: 0}
+      responses:
+        201:
+          description: Custom domain created.
+          content:
+            application/json:
+              schema: {type: object}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+  /public/v1/buckets/{bucket_id}/domains/{domain_id}:
+    patch:
+      tags: [Object storage]
+      summary: Update a bucket custom domain
+      description: "Updates the TLS certificate or static website routing/cache settings on a custom domain.\n\n**Scope:** `write`."
+      operationId: updateBucketDomain
+      security: [{apiKey: []}]
+      x-scope: write
+      x-order: 499
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {name: domain_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                certificate_id: {type: string}
+                index_document: {type: string}
+                error_document: {type: string}
+                spa_mode: {type: boolean}
+                cache_ttl_seconds: {type: integer, minimum: 0}
+      responses:
+        200:
+          description: Custom domain updated.
+          content:
+            application/json:
+              schema: {type: object}
+        401: {$ref: "#/components/responses/Unauthenticated"}
+        429: {$ref: "#/components/responses/RateLimited"}
+    delete:
+      tags: [Object storage]
+      summary: Detach a bucket custom domain
+      description: "Detaches a custom domain from a bucket.\n\n**Scope:** `delete`."
+      operationId: deleteBucketDomain
+      security: [{apiKey: []}]
+      x-scope: write
+      x-destructive: true
+      x-order: 500
+      parameters:
+        - {name: bucket_id, in: path, required: true, schema: {type: string}}
+        - {name: domain_id, in: path, required: true, schema: {type: string}}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      responses:
+        204: {description: Custom domain deleted.}
         401: {$ref: "#/components/responses/Unauthenticated"}
         429: {$ref: "#/components/responses/RateLimited"}
   /public/v1/functions:
@@ -9401,6 +9952,8 @@ paths:
             `ACCOUNT_NOT_ACTIVE`: the organization's billing account is not active yet. Finish billing setup in the console (verify the organization and add a payment method), then retry.
             `PROVIDER_ACCOUNT_NOT_READY`: your organization's cloud account is still being set up, which takes a few minutes after sign-up. Retry shortly.
             `SECURITY_GROUPS_NOT_SUPPORTED_IN_ZONE`: a VPC instance uses its subnet's firewall rules, not a security group. Leave out `security_group_id`.
+            `ADDRESS_ROTATION_UNAVAILABLE`: `address_rotation` was set, but dynamic IPs are not available for this plan, image or location right now. Nothing was charged.
+            `ADDRESS_ROTATION_NO_ADDRESS`: `address_rotation` was set, but no dynamic IP is free in this location right now. Nothing was charged; retry later, or leave out `address_rotation`.
             `CONCURRENT_UPDATE`: the resource changed while this request was being processed. Retry the request; if it repeats, read the resource first.
           content:
             "application/problem+json":
@@ -10170,6 +10723,7 @@ paths:
             `ACCOUNT_SUSPENDED`: an invoice is overdue, or the organization was suspended for non-payment. Pay the outstanding invoice in the console, then retry.
             `ACCOUNT_NOT_ACTIVE`: the organization's billing account is not active yet. Finish billing setup in the console (verify the organization and add a payment method), then retry.
             `INVALID_RESOURCE_STATE`: the instance cannot do this in its current state, for example while it is being created or deleted. Wait for its current operation to finish, then retry.
+            `INSTANCE_HAS_DYNAMIC_IP`: the instance has a dynamic IP on. Turn it off (`DELETE /public/v1/instances/{instance_id}/address-rotation`), then retry.
             `CONCURRENT_UPDATE`: the resource changed while this request was being processed. Retry the request; if it repeats, read the resource first.
           content:
             "application/problem+json":
@@ -10953,6 +11507,7 @@ paths:
             `PRIVATE_NETWORK_NOT_ATTACHED`: the instance has no private network interface to remove.
             `PRIVATE_NETWORK_CHANGE_IN_PROGRESS`: the interface is being added or removed. Wait for that operation to finish.
             `INSTANCE_NOT_SETTLED`: the instance is starting, stopping, resizing, restoring or being deleted. Wait until it is running or stopped, then retry.
+            `INSTANCE_HAS_DYNAMIC_IP`: the instance's dynamic IP runs over this interface. Turn the dynamic IP off first.
             `CONCURRENT_UPDATE`: the resource changed while this request was being processed. Retry the request; if it repeats, read the resource first.
           content:
             "application/problem+json":
@@ -21171,7 +21726,7 @@ paths:
         - Agent sessions
       summary: Decide an approval
       description: |-
-        A person's decision on an approval the session asked for. Refused for an AI app's connection (`AGENT_APPROVAL_NEEDS_PERSON`): use a standard API key, or the console.
+        A person's decision on an approval the session asked for. A step waits 24 hours for it, then is denied. Refused for an AI app's own connection (`AGENT_APPROVAL_NEEDS_PERSON`): the person answers in the console, or in their AI app when the Pantech MCP server shows them the step there.
 
         **Idempotency:** an approval is decided once; sending the same decision again (after an error, say) delivers it to the agent again and returns 200; a different decision is `AGENT_APPROVAL_ALREADY_DECIDED`.
 
@@ -23087,7 +23642,7 @@ paths:
         - Migrate
       summary: Revoke a connection's agent
       description: |-
-        Ends the connection's Migrate agent at once: its credential stops working on its next request. The connection waits for a new agent. Like disconnecting, this only takes access away. Owners and admins only.
+        Ends the connection's Migrate agent at once: its credential stops working on its next request, and the server copies, database imports and Kubernetes moves it was running stop until a new agent is enrolled. A connection to a cloud Pantech scans with an agent then waits for a new one; a connection to AWS, Google Cloud, Azure or Huawei Cloud stays connected. Like disconnecting, this only takes access away. Owners and admins only.
 
         **Idempotency:** revoking again changes nothing.
 
@@ -31865,7 +32420,7 @@ components:
           type: [string, "null"]
     AgentSessionStart:
       type: object
-      required: [title, mode]
+      required: [title]
       properties:
         title:
           type: string
@@ -31877,7 +32432,7 @@ components:
         mode:
           type: string
           enum: [plan, ask, auto]
-          description: "`plan` only reads. `ask` asks before anything outside a safe list. `auto` is for agent sessions only: it asks before nothing but destructive git, and still refuses what platform policy forbids. A tools session is `plan` or `ask`."
+          description: "Defaults to `auto`. `plan` only reads. `ask` asks before anything outside a safe list. `auto` asks before nothing but destructive git, and still refuses what platform policy forbids. Any kind of session can use any mode."
         message:
           type: string
           maxLength: 16000
@@ -32594,6 +33149,10 @@ components:
         object_lock:
           type: boolean
           description: "Whether objects can be locked against deletion. Chosen at create only."
+        encryption:
+          type: string
+          enum: [none, sse_s3]
+          description: "Default server-side encryption applied to new objects (`none` or `sse_s3`)."
         public_prefixes:
           type: array
           items:
@@ -32665,6 +33224,10 @@ components:
         object_lock:
           type: boolean
           description: "Allow objects to be locked against deletion. Only at create, and it turns versioning on."
+        encryption:
+          type: string
+          enum: [none, sse_s3]
+          description: "Optional default server-side encryption for new objects (`none` or `sse_s3`)."
         public_prefixes:
           type: array
           items:
@@ -32681,6 +33244,10 @@ components:
         versioning:
           type: boolean
           description: "Keep earlier versions of overwritten and deleted objects."
+        encryption:
+          type: string
+          enum: [none, sse_s3]
+          description: "Default server-side encryption for newly written objects (`none` or `sse_s3`)."
         public_prefixes:
           type: array
           items:
@@ -32703,6 +33270,9 @@ components:
         direct_upload_enabled:
           type: boolean
           description: "Whether direct-to-bucket presigned uploads are enabled."
+        block_public_access:
+          type: [boolean, "null"]
+          description: "Whether Block All Public Access is on: nothing in the organization's buckets can be made public, and public prefixes and public objects stop being served anonymously. Null when object storage is not enabled or the setting could not be read."
         limits:
           type: [object, "null"]
           properties:
@@ -32717,7 +33287,7 @@ components:
     ObjectStorageKey:
       type: object
       description: "An S3 access key, without its secret."
-      required: [id, name, region, access_key_id, read_only, buckets, created_at]
+      required: [id, name, region, access_key_id, read_only, permissions, buckets, prefixes, created_at, expires_at]
       properties:
         id:
           type: string
@@ -32733,16 +33303,43 @@ components:
           description: "The S3 access key id S3 tools sign with."
         read_only:
           type: boolean
-          description: "Whether the key may only read and list."
+          description: "Whether the key may only read and list. True exactly when `permissions` is `read_only`."
+        permissions:
+          type: string
+          enum: [read_write, read_only, write_only]
+          description: "What the key may do: `read_write`, `read_only` (read and list), or `write_only` (upload only; it cannot read, list or delete)."
         buckets:
           type: array
           items:
             type: string
           description: "The bucket names the key may use; empty is every bucket."
+        prefixes:
+          type: array
+          items:
+            type: string
+          description: "The object key prefixes the key may use, such as `uploads/`; empty is every object."
         created_at:
           type: string
           format: date-time
           description: When it was created.
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: "When the key stops working; null is never."
+    ObjectStorageSettings:
+      type: object
+      required: [block_public_access]
+      properties:
+        block_public_access:
+          type: boolean
+          description: "Whether Block All Public Access is on."
+    UpdateObjectStorageSettingsRequest:
+      type: object
+      required: [block_public_access]
+      properties:
+        block_public_access:
+          type: boolean
+          description: "True blocks all public access: public prefixes and public objects stop being served anonymously, and nothing can be made public until it is turned off. False restores the public prefixes and objects already set."
     ObjectStorageKeyList:
       type: object
       required: [data]
@@ -32777,12 +33374,27 @@ components:
           description: "The region code. Defaults to the region object storage is offered in."
         read_only:
           type: boolean
-          description: "Allow only reading and listing."
+          description: "Allow only reading and listing. The same as `permissions: read_only`; cannot be true with another `permissions` value."
+        permissions:
+          type: string
+          enum: [read_only, read_write, write_only]
+          description: "What the key may do. Defaults to `read_write`, or `read_only` when `read_only` is true. `write_only` may upload but not read, list or delete, for devices and upload forms."
         buckets:
           type: array
           items:
             type: string
           description: "Limit the key to these bucket names; absent or empty is every bucket. At most 100."
+        prefixes:
+          type: array
+          items:
+            type: string
+          description: "Limit the key to object keys under these prefixes, such as `uploads/`; absent or empty is every object. At most 20, each 1 to 512 characters, not starting with `/` and without `*` or `?`."
+          examples: [["uploads/"]]
+        expires_at:
+          type: string
+          format: date-time
+          description: "When the key stops working, RFC 3339, in the future and at most 10 years ahead. Absent never expires. An expired key is revoked."
+          examples: ["2027-01-01T00:00:00Z"]
     FunctionKey:
       type: object
       description: "A key a `key` function is called with, without the key itself."
@@ -37853,7 +38465,7 @@ components:
       type:
         - object
         - "null"
-      description: "How to run the Pantech Migrate agent; null for federated providers."
+      description: "How to run the connection's Pantech Migrate agent. Every connection may have one: for AWS, Google Cloud, Azure and Huawei Cloud it runs server copies, database imports and Kubernetes moves and needs no cloud credential (`token_variables` is empty); for the other clouds it also scans, with your read-only credential. Null when the agent is not available."
       required:
         - image
         - download_url
@@ -37876,7 +38488,7 @@ components:
           type: string
         token_variables:
           type: array
-          description: "The environment variables the agent reads your read-only credential from, on your machine. It is never sent to Pantech."
+          description: "The environment variables the agent reads your read-only credential from, on your machine. It is never sent to Pantech. Empty for AWS, Google Cloud, Azure and Huawei Cloud, where Pantech scans without one."
           items:
             type: string
         token_how_to:
@@ -38030,7 +38642,7 @@ components:
           type: string
         status:
           type: string
-          description: "`awaiting_role` (federated providers: waiting for what the setup printed), `awaiting_agent` (agent providers: no agent enrolled), `verifying`, `connected` or `failed`."
+          description: "`awaiting_role` (federated providers: waiting for what the setup printed), `awaiting_agent` (other clouds: no agent enrolled; on AWS, Google Cloud, Azure and Huawei Cloud an agent never changes the status), `verifying`, `connected` or `failed`."
           enum:
             - awaiting_role
             - awaiting_agent
