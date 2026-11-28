@@ -7,6 +7,36 @@ publishes a GitHub release with that section as its notes.
 
 ## Unreleased
 
+## v0.7.0 — 2026-11-28
+
+### Added
+
+- Object Storage settings and scoped S3 keys: `ObjectStorageStatus.BlockPublicAccess`,
+  `ObjectStorage.UpdateSettings` (`PATCH /object-storage/settings`, `ObjectStorageSettings`,
+  `UpdateObjectStorageSettingsRequest`), and scoped/expiring keys via `Permissions`, `Prefixes`
+  and `ExpiresAt` on `ObjectStorageKey` and `CreateObjectStorageKeyRequest`.
+- Bucket server-side encryption: `Encryption` on `Bucket`, `CreateBucketRequest` and
+  `UpdateBucketRequest`, plus `ServerSideEncryption` on `BucketObjectMeta`.
+- Direct browser uploads, version restore and multipart helpers: `Buckets.CreateUploadForm`
+  (`CreateBucketUploadFormRequest`, `BucketUploadForm`), `Buckets.RestoreObjectVersion`
+  (`RestoreBucketObjectVersionRequest`, `RestoredBucketObjectVersion`; treated as non-replaying
+  and retried only on `429`), `Buckets.ListMultipartUploads` (`MultipartUpload`), and
+  `Buckets.SignMultipartParts` (`SignMultipartPartsRequest`, `SignedMultipartParts`,
+  `SignedMultipartPart`).
+- Cross-organization bucket sharing: `Buckets.ListShared` (`SharedBucket`), `Buckets.ListShares`,
+  `Buckets.CreateShare` (`CreateBucketShareRequest`, `BucketShare`), and `Buckets.RevokeShare`.
+- Bucket event notifications: `Buckets.ListNotifications`, `Buckets.CreateNotification`
+  (`CreateBucketNotificationRequest`, `BucketNotification`), `Buckets.UpdateNotification`
+  (`UpdateBucketNotificationRequest`), and `Buckets.DeleteNotification`.
+- Bucket custom domains and static website routing: `Buckets.ListDomains`, `Buckets.CreateDomain`
+  (`CreateBucketDomainRequest`, `BucketDomain`), `Buckets.UpdateDomain`
+  (`UpdateBucketDomainRequest`), and `Buckets.DeleteDomain`.
+
+### Changed
+
+- Synced the vendored OpenAPI spec with the latest public API, mapping `putObjectLock` and
+  `putBucketObjectLock` directly without `aheadOfSpec` overrides.
+
 ## v0.6.1 — 2026-11-25
 
 ### Changed

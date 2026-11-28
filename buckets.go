@@ -145,6 +145,17 @@ func (s *BucketsService) PresignUpload(ctx context.Context, bucketID string, req
 	return &out, nil
 }
 
+// CreateUploadForm signs an HTML form upload (S3 POST policy) for direct browser uploads:
+// POST /buckets/{bucket_id}/objects/upload-form.
+// Scope: write.
+func (s *BucketsService) CreateUploadForm(ctx context.Context, bucketID string, req CreateBucketUploadFormRequest, opts ...RequestOption) (*BucketUploadForm, error) {
+	var out BucketUploadForm
+	if err := s.c.Do(ctx, "POST", bucketPath(bucketID)+"/objects/upload-form", nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // CreateFolder creates a folder prefix marker: POST /buckets/{bucket_id}/objects/folder.
 // Scope: write.
 func (s *BucketsService) CreateFolder(ctx context.Context, bucketID string, req CreateBucketFolderRequest, opts ...RequestOption) (*BucketFolder, error) {
@@ -206,6 +217,33 @@ func (s *BucketsService) PutObjectVisibility(ctx context.Context, bucketID strin
 	return &out, nil
 }
 
+// RestoreObjectVersion restores a previous object version or removes a delete marker:
+// POST /buckets/{bucket_id}/objects/restore-version.
+// Scope: write.
+func (s *BucketsService) RestoreObjectVersion(ctx context.Context, bucketID string, req RestoreBucketObjectVersionRequest, opts ...RequestOption) (*RestoredBucketObjectVersion, error) {
+	var out RestoredBucketObjectVersion
+	if err := s.c.Do(ctx, "POST", bucketPath(bucketID)+"/objects/restore-version", nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListMultipartUploads lists active in-progress multipart uploads in a bucket:
+// GET /buckets/{bucket_id}/objects/multipart.
+// Scope: read.
+func (s *BucketsService) ListMultipartUploads(ctx context.Context, bucketID string, opts ...RequestOption) ([]MultipartUpload, error) {
+	var out struct {
+		Uploads []MultipartUpload `json:"uploads"`
+	}
+	if err := s.c.Do(ctx, "GET", bucketPath(bucketID)+"/objects/multipart", nil, nil, &out, opts...); err != nil {
+		return nil, err
+	}
+	if out.Uploads == nil {
+		return []MultipartUpload{}, nil
+	}
+	return out.Uploads, nil
+}
+
 // StartMultipartUpload starts a multipart upload session: POST /buckets/{bucket_id}/objects/multipart/start.
 // Scope: write.
 func (s *BucketsService) StartMultipartUpload(ctx context.Context, bucketID string, req StartMultipartUploadRequest, opts ...RequestOption) (*MultipartUploadSession, error) {
@@ -222,6 +260,17 @@ func (s *BucketsService) StartMultipartUpload(ctx context.Context, bucketID stri
 func (s *BucketsService) SignMultipartPart(ctx context.Context, bucketID string, req SignMultipartPartRequest, opts ...RequestOption) (*PresignedURL, error) {
 	var out PresignedURL
 	if err := s.c.Do(ctx, "POST", bucketPath(bucketID)+"/objects/multipart/sign-part", nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SignMultipartParts batch-signs direct upload URLs for up to 100 multipart parts:
+// POST /buckets/{bucket_id}/objects/multipart/sign-parts.
+// Scope: write.
+func (s *BucketsService) SignMultipartParts(ctx context.Context, bucketID string, req SignMultipartPartsRequest, opts ...RequestOption) (*SignedMultipartParts, error) {
+	var out SignedMultipartParts
+	if err := s.c.Do(ctx, "POST", bucketPath(bucketID)+"/objects/multipart/sign-parts", nil, &req, &out, opts...); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -336,4 +385,112 @@ func (s *BucketsService) PutObjectLockConfig(ctx context.Context, bucketID strin
 		return nil, err
 	}
 	return &out, nil
+}
+
+// ListShared lists buckets shared with your organization by other Pantech organizations:
+// GET /buckets/shared.
+// Scope: read.
+// It follows next_cursor until the list ends, so the slice holds every item.
+func (s *BucketsService) ListShared(ctx context.Context, opts ...RequestOption) ([]SharedBucket, error) {
+	return listAll[SharedBucket](ctx, s.c, "/buckets/shared", nil, opts...)
+}
+
+// ListShares lists cross-organization shares configured on a bucket:
+// GET /buckets/{bucket_id}/shares.
+// Scope: read.
+// It follows next_cursor until the list ends, so the slice holds every item.
+func (s *BucketsService) ListShares(ctx context.Context, bucketID string, opts ...RequestOption) ([]BucketShare, error) {
+	return listAll[BucketShare](ctx, s.c, bucketPath(bucketID)+"/shares", nil, opts...)
+}
+
+// CreateShare shares a bucket with another Pantech organization:
+// POST /buckets/{bucket_id}/shares.
+// Scope: write.
+func (s *BucketsService) CreateShare(ctx context.Context, bucketID string, req CreateBucketShareRequest, opts ...RequestOption) (*BucketShare, error) {
+	var out BucketShare
+	if err := s.c.Do(ctx, "POST", bucketPath(bucketID)+"/shares", nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RevokeShare revokes a cross-organization share on a bucket:
+// DELETE /buckets/{bucket_id}/shares/{share_id}.
+// Scope: delete.
+func (s *BucketsService) RevokeShare(ctx context.Context, bucketID, shareID string, opts ...RequestOption) error {
+	return s.c.Do(ctx, "DELETE", bucketPath(bucketID)+"/shares/"+url.PathEscape(shareID), nil, nil, nil, opts...)
+}
+
+// ListNotifications lists object event notification rules on a bucket:
+// GET /buckets/{bucket_id}/notifications.
+// Scope: read.
+// It follows next_cursor until the list ends, so the slice holds every item.
+func (s *BucketsService) ListNotifications(ctx context.Context, bucketID string, opts ...RequestOption) ([]BucketNotification, error) {
+	return listAll[BucketNotification](ctx, s.c, bucketPath(bucketID)+"/notifications", nil, opts...)
+}
+
+// CreateNotification creates a bucket object event notification rule:
+// POST /buckets/{bucket_id}/notifications.
+// Scope: write.
+func (s *BucketsService) CreateNotification(ctx context.Context, bucketID string, req CreateBucketNotificationRequest, opts ...RequestOption) (*BucketNotification, error) {
+	var out BucketNotification
+	if err := s.c.Do(ctx, "POST", bucketPath(bucketID)+"/notifications", nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateNotification updates a bucket object event notification rule:
+// PATCH /buckets/{bucket_id}/notifications/{notification_id}.
+// Scope: write.
+func (s *BucketsService) UpdateNotification(ctx context.Context, bucketID, notificationID string, req UpdateBucketNotificationRequest, opts ...RequestOption) (*BucketNotification, error) {
+	var out BucketNotification
+	if err := s.c.Do(ctx, "PATCH", bucketPath(bucketID)+"/notifications/"+url.PathEscape(notificationID), nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteNotification deletes a bucket object event notification rule:
+// DELETE /buckets/{bucket_id}/notifications/{notification_id}.
+// Scope: delete.
+func (s *BucketsService) DeleteNotification(ctx context.Context, bucketID, notificationID string, opts ...RequestOption) error {
+	return s.c.Do(ctx, "DELETE", bucketPath(bucketID)+"/notifications/"+url.PathEscape(notificationID), nil, nil, nil, opts...)
+}
+
+// ListDomains lists custom domains attached to a bucket:
+// GET /buckets/{bucket_id}/domains.
+// Scope: read.
+// It follows next_cursor until the list ends, so the slice holds every item.
+func (s *BucketsService) ListDomains(ctx context.Context, bucketID string, opts ...RequestOption) ([]BucketDomain, error) {
+	return listAll[BucketDomain](ctx, s.c, bucketPath(bucketID)+"/domains", nil, opts...)
+}
+
+// CreateDomain attaches a custom domain to a bucket:
+// POST /buckets/{bucket_id}/domains.
+// Scope: write.
+func (s *BucketsService) CreateDomain(ctx context.Context, bucketID string, req CreateBucketDomainRequest, opts ...RequestOption) (*BucketDomain, error) {
+	var out BucketDomain
+	if err := s.c.Do(ctx, "POST", bucketPath(bucketID)+"/domains", nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateDomain updates a bucket's custom domain configuration:
+// PATCH /buckets/{bucket_id}/domains/{domain_id}.
+// Scope: write.
+func (s *BucketsService) UpdateDomain(ctx context.Context, bucketID, domainID string, req UpdateBucketDomainRequest, opts ...RequestOption) (*BucketDomain, error) {
+	var out BucketDomain
+	if err := s.c.Do(ctx, "PATCH", bucketPath(bucketID)+"/domains/"+url.PathEscape(domainID), nil, &req, &out, opts...); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteDomain detaches a custom domain from a bucket:
+// DELETE /buckets/{bucket_id}/domains/{domain_id}.
+// Scope: delete.
+func (s *BucketsService) DeleteDomain(ctx context.Context, bucketID, domainID string, opts ...RequestOption) error {
+	return s.c.Do(ctx, "DELETE", bucketPath(bucketID)+"/domains/"+url.PathEscape(domainID), nil, nil, nil, opts...)
 }

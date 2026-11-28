@@ -4257,11 +4257,28 @@ type ObjectStorageLimits struct {
 
 // ObjectStorageStatus reports whether object storage is enabled and its S3 endpoint.
 type ObjectStorageStatus struct {
-	Enabled             bool                 `json:"enabled"`
-	Endpoint            string               `json:"endpoint"`
-	Beta                bool                 `json:"beta"`
-	DirectUploadEnabled bool                 `json:"direct_upload_enabled"`
-	Limits              *ObjectStorageLimits `json:"limits"`
+	Enabled             bool   `json:"enabled"`
+	Endpoint            string `json:"endpoint"`
+	Beta                bool   `json:"beta"`
+	DirectUploadEnabled bool   `json:"direct_upload_enabled"`
+	// BlockPublicAccess reports whether Block All Public Access is on for the
+	// organization. Nil when object storage is not enabled or the setting could
+	// not be read.
+	BlockPublicAccess *bool                `json:"block_public_access"`
+	Limits            *ObjectStorageLimits `json:"limits"`
+}
+
+// ObjectStorageSettings holds organization-wide object storage settings.
+type ObjectStorageSettings struct {
+	// Whether Block All Public Access is on.
+	BlockPublicAccess bool `json:"block_public_access"`
+}
+
+// UpdateObjectStorageSettingsRequest changes organization-wide object storage settings.
+type UpdateObjectStorageSettingsRequest struct {
+	// True blocks all public access across the organization's buckets; false
+	// restores the public prefixes and objects already set.
+	BlockPublicAccess bool `json:"block_public_access"`
 }
 
 // ObjectStorageHourUsage is one hour of object storage transfer and request counts.
@@ -4286,13 +4303,17 @@ type ObjectStorageUsage struct {
 // ObjectStorageKey is an S3 access key without its secret.
 type ObjectStorageKey struct {
 	// The key's id, starting `osk_`.
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Region      string    `json:"region"`
-	AccessKeyID string    `json:"access_key_id"`
-	ReadOnly    bool      `json:"read_only"`
-	Buckets     []string  `json:"buckets"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Region      string `json:"region"`
+	AccessKeyID string `json:"access_key_id"`
+	ReadOnly    bool   `json:"read_only"`
+	// One of: read_write, read_only, write_only.
+	Permissions string     `json:"permissions"`
+	Buckets     []string   `json:"buckets"`
+	Prefixes    []string   `json:"prefixes"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
 }
 
 // CreatedObjectStorageKey is a newly created S3 access key with its secret, shown once.
@@ -4316,24 +4337,31 @@ func (k CreatedObjectStorageKey) GoString() string { return k.String() }
 // CreateObjectStorageKeyRequest creates a new S3 access key.
 type CreateObjectStorageKeyRequest struct {
 	// 1 to 64 letters, digits, `-`, `_` or `.`.
-	Name     string    `json:"name"`
-	Region   *string   `json:"region,omitempty"`
-	ReadOnly *bool     `json:"read_only,omitempty"`
-	Buckets  *[]string `json:"buckets,omitempty"`
+	Name     string  `json:"name"`
+	Region   *string `json:"region,omitempty"`
+	ReadOnly *bool   `json:"read_only,omitempty"`
+	// One of: read_only, read_write, write_only. Defaults to read_write, or
+	// read_only when ReadOnly is true.
+	Permissions *string    `json:"permissions,omitempty"`
+	Buckets     *[]string  `json:"buckets,omitempty"`
+	Prefixes    *[]string  `json:"prefixes,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
 // Bucket is an object storage bucket.
 type Bucket struct {
 	// The bucket's id, starting `bkt_`.
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	Region         string   `json:"region"`
-	Endpoint       string   `json:"endpoint"`
-	QuotaBytes     int64    `json:"quota_bytes"`
-	SizeBytes      int64    `json:"size_bytes"`
-	ObjectCount    int64    `json:"object_count"`
-	Versioning     bool     `json:"versioning"`
-	ObjectLock     bool     `json:"object_lock"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Region      string `json:"region"`
+	Endpoint    string `json:"endpoint"`
+	QuotaBytes  int64  `json:"quota_bytes"`
+	SizeBytes   int64  `json:"size_bytes"`
+	ObjectCount int64  `json:"object_count"`
+	Versioning  bool   `json:"versioning"`
+	ObjectLock  bool   `json:"object_lock"`
+	// Default server-side encryption applied to new objects. One of: none, sse_s3.
+	Encryption     string   `json:"encryption"`
 	PublicPrefixes []string `json:"public_prefixes"`
 	// One of: provisioning, active, updating, deleting, failed, unknown.
 	State      string     `json:"state"`
@@ -4357,18 +4385,22 @@ type UpdatedBucket struct {
 // CreateBucketRequest creates a bucket.
 type CreateBucketRequest struct {
 	// 3 to 63 lowercase letters, digits and hyphens, starting and ending with a letter or digit.
-	Name           string    `json:"name"`
-	Region         *string   `json:"region,omitempty"`
-	QuotaBytes     *int64    `json:"quota_bytes,omitempty"`
-	Versioning     *bool     `json:"versioning,omitempty"`
-	ObjectLock     *bool     `json:"object_lock,omitempty"`
+	Name       string  `json:"name"`
+	Region     *string `json:"region,omitempty"`
+	QuotaBytes *int64  `json:"quota_bytes,omitempty"`
+	Versioning *bool   `json:"versioning,omitempty"`
+	ObjectLock *bool   `json:"object_lock,omitempty"`
+	// Default server-side encryption for new objects. One of: none, sse_s3.
+	Encryption     *string   `json:"encryption,omitempty"`
 	PublicPrefixes *[]string `json:"public_prefixes,omitempty"`
 }
 
-// UpdateBucketRequest changes a bucket's quota, versioning or public prefixes.
+// UpdateBucketRequest changes a bucket's quota, versioning, encryption or public prefixes.
 type UpdateBucketRequest struct {
-	QuotaBytes     *int64    `json:"quota_bytes,omitempty"`
-	Versioning     *bool     `json:"versioning,omitempty"`
+	QuotaBytes *int64 `json:"quota_bytes,omitempty"`
+	Versioning *bool  `json:"versioning,omitempty"`
+	// Default server-side encryption for newly written objects. One of: none, sse_s3.
+	Encryption     *string   `json:"encryption,omitempty"`
 	PublicPrefixes *[]string `json:"public_prefixes,omitempty"`
 }
 
@@ -4452,8 +4484,46 @@ type BucketObjectMeta struct {
 	Public             bool              `json:"public"`
 	ObjectPublic       bool              `json:"object_public"`
 	// One of: private, object, bucket_prefix.
-	PublicSource string `json:"public_source"`
-	PublicURL    string `json:"public_url"`
+	PublicSource         string `json:"public_source"`
+	PublicURL            string `json:"public_url"`
+	ServerSideEncryption string `json:"server_side_encryption"`
+}
+
+// CreateBucketUploadFormRequest signs an HTML form upload (S3 POST policy) into a bucket.
+type CreateBucketUploadFormRequest struct {
+	// The one key the form may write. Give this or KeyPrefix.
+	Key *string `json:"key,omitempty"`
+	// The form may write any key starting with this, ending in the browser's file name. Give this or Key.
+	KeyPrefix        *string `json:"key_prefix,omitempty"`
+	MinBytes         *int64  `json:"min_bytes,omitempty"`
+	MaxBytes         *int64  `json:"max_bytes,omitempty"`
+	ContentType      *string `json:"content_type,omitempty"`
+	ExpiresInSeconds *int64  `json:"expires_in_seconds,omitempty"`
+}
+
+// BucketUploadForm is a signed HTML form upload for direct browser uploads.
+type BucketUploadForm struct {
+	URL        string            `json:"url"`
+	Fields     map[string]string `json:"fields"`
+	ExpiresAt  time.Time         `json:"expires_at"`
+	BucketName string            `json:"bucket_name"`
+}
+
+// RestoreBucketObjectVersionRequest restores a historical object version or removes a delete marker.
+type RestoreBucketObjectVersionRequest struct {
+	Key       string  `json:"key"`
+	VersionID *string `json:"version_id,omitempty"`
+}
+
+// RestoredBucketObjectVersion summarizes a restored object version or removed delete marker.
+type RestoredBucketObjectVersion struct {
+	Key string `json:"key"`
+	// One of: copied_version, removed_delete_marker.
+	Action            string `json:"action"`
+	RestoredVersionID string `json:"restored_version_id"`
+	VersionID         string `json:"version_id"`
+	ETag              string `json:"etag"`
+	LastModified      string `json:"last_modified"`
 }
 
 // PresignObjectDownloadRequest mints a short-lived direct download URL.
@@ -4679,6 +4749,32 @@ type BucketTagsConfig struct {
 	Tags []StorageTag `json:"tags"`
 }
 
+// MultipartUpload is an active in-progress multipart upload in a bucket.
+type MultipartUpload struct {
+	Key       string `json:"key"`
+	UploadID  string `json:"upload_id"`
+	Initiated string `json:"initiated"`
+}
+
+// SignMultipartPartsRequest batch-signs direct upload URLs for up to 100 multipart parts.
+type SignMultipartPartsRequest struct {
+	Key         string `json:"key"`
+	UploadID    string `json:"upload_id"`
+	PartNumbers []int  `json:"part_numbers"`
+}
+
+// SignedMultipartPart is one signed direct upload URL for a multipart part.
+type SignedMultipartPart struct {
+	PartNumber int    `json:"part_number"`
+	URL        string `json:"url"`
+}
+
+// SignedMultipartParts is a batch of signed direct upload URLs for multipart parts.
+type SignedMultipartParts struct {
+	Parts            []SignedMultipartPart `json:"parts"`
+	ExpiresInSeconds int                   `json:"expires_in_seconds"`
+}
+
 // BucketObjectLockConfig holds default object-lock retention settings for a bucket.
 type BucketObjectLockConfig struct {
 	Enabled bool `json:"enabled"`
@@ -4686,4 +4782,122 @@ type BucketObjectLockConfig struct {
 	Mode  string `json:"mode"`
 	Days  int    `json:"days"`
 	Years int    `json:"years"`
+}
+
+// SharedBucket is a bucket shared with this organization by another Pantech organization.
+type SharedBucket struct {
+	// The share's id, starting `bsh_`.
+	ShareID string `json:"share_id"`
+	// The shared bucket's id, starting `bkt_`.
+	BucketID            string `json:"bucket_id"`
+	BucketName          string `json:"bucket_name"`
+	Region              string `json:"region"`
+	Endpoint            string `json:"endpoint"`
+	OwnerOrganizationID string `json:"owner_organization_id"`
+	// One of: read_only, write_only, read_write.
+	Permissions string     `json:"permissions"`
+	Prefixes    []string   `json:"prefixes"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	S3BucketRef string     `json:"s3_bucket_ref"`
+}
+
+// BucketShare is a cross-organization share configured on a bucket.
+type BucketShare struct {
+	// The share's id, starting `bsh_`.
+	ID                    string `json:"id"`
+	BucketID              string `json:"bucket_id"`
+	OwnerOrganizationID   string `json:"owner_organization_id"`
+	GranteeOrganizationID string `json:"grantee_organization_id"`
+	// One of: read_only, write_only, read_write.
+	Permissions string     `json:"permissions"`
+	Prefixes    []string   `json:"prefixes"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	RevokedAt   *time.Time `json:"revoked_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+// CreateBucketShareRequest shares a bucket with another Pantech organization.
+type CreateBucketShareRequest struct {
+	GranteeOrganizationID string `json:"grantee_organization_id"`
+	// One of: read_only, write_only, read_write.
+	Permissions string     `json:"permissions"`
+	Prefixes    *[]string  `json:"prefixes,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+}
+
+// BucketNotification is an object event notification rule on a bucket.
+type BucketNotification struct {
+	// The notification rule's id, starting `bnt_`.
+	ID       string `json:"id"`
+	BucketID string `json:"bucket_id"`
+	Name     string `json:"name"`
+	// Each event is one of: object.created, object.removed.
+	Events []string `json:"events"`
+	Prefix string   `json:"prefix"`
+	Suffix string   `json:"suffix"`
+	// One of: webhook, function.
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// CreateBucketNotificationRequest creates a bucket object event notification rule.
+type CreateBucketNotificationRequest struct {
+	Name string `json:"name"`
+	// Each event is one of: object.created, object.removed.
+	Events []string `json:"events"`
+	Prefix *string  `json:"prefix,omitempty"`
+	Suffix *string  `json:"suffix,omitempty"`
+	// One of: webhook, function.
+	TargetType string `json:"target_type"`
+	TargetID   string `json:"target_id"`
+	Enabled    *bool  `json:"enabled,omitempty"`
+}
+
+// UpdateBucketNotificationRequest updates a bucket object event notification rule.
+type UpdateBucketNotificationRequest struct {
+	// Each event is one of: object.created, object.removed.
+	Events  *[]string `json:"events,omitempty"`
+	Prefix  *string   `json:"prefix,omitempty"`
+	Suffix  *string   `json:"suffix,omitempty"`
+	Enabled *bool     `json:"enabled,omitempty"`
+}
+
+// BucketDomain is a custom domain binding and static website configuration on a bucket.
+type BucketDomain struct {
+	// The domain binding's id, starting `bdom_`.
+	ID              string    `json:"id"`
+	BucketID        string    `json:"bucket_id"`
+	Hostname        string    `json:"hostname"`
+	CertificateID   string    `json:"certificate_id"`
+	IndexDocument   string    `json:"index_document"`
+	ErrorDocument   string    `json:"error_document"`
+	SPAMode         bool      `json:"spa_mode"`
+	CacheTTLSeconds int       `json:"cache_ttl_seconds"`
+	Status          string    `json:"status"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// CreateBucketDomainRequest attaches a custom domain to a bucket.
+type CreateBucketDomainRequest struct {
+	Hostname        string  `json:"hostname"`
+	CertificateID   string  `json:"certificate_id"`
+	IndexDocument   *string `json:"index_document,omitempty"`
+	ErrorDocument   *string `json:"error_document,omitempty"`
+	SPAMode         *bool   `json:"spa_mode,omitempty"`
+	CacheTTLSeconds *int    `json:"cache_ttl_seconds,omitempty"`
+}
+
+// UpdateBucketDomainRequest updates a bucket's custom domain configuration.
+type UpdateBucketDomainRequest struct {
+	CertificateID   *string `json:"certificate_id,omitempty"`
+	IndexDocument   *string `json:"index_document,omitempty"`
+	ErrorDocument   *string `json:"error_document,omitempty"`
+	SPAMode         *bool   `json:"spa_mode,omitempty"`
+	CacheTTLSeconds *int    `json:"cache_ttl_seconds,omitempty"`
 }

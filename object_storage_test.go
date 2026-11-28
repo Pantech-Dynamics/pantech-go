@@ -11,10 +11,11 @@ import (
 
 func TestObjectStorageStatusUsageAndKeys(t *testing.T) {
 	rec := newRecorder(t,
-		ok(`{"enabled":true,"endpoint":"https://s3.af-abj.pantechdynamics.com","beta":true,"direct_upload_enabled":true,"limits":{"max_buckets":25,"max_storage_bytes":107374182400,"max_objects":1000000}}`),
+		ok(`{"enabled":true,"endpoint":"https://s3.af-abj.pantechdynamics.com","beta":true,"direct_upload_enabled":true,"block_public_access":false,"limits":{"max_buckets":25,"max_storage_bytes":107374182400,"max_objects":1000000}}`),
+		ok(`{"block_public_access":true}`),
 		ok(`{"range":"7d","total_bytes_sent":4096,"total_bytes_received":8192,"total_read_ops":12,"total_write_ops":5,"hours":[{"hour":"2026-11-24T10:00:00Z","bytes_sent":4096,"bytes_received":8192,"read_ops":12,"write_ops":5}]}`),
-		ok(`{"data":[{"id":"osk_1","name":"backups","region":"af-abj","access_key_id":"AKIA1","read_only":true,"buckets":["assets"],"created_at":"2026-11-24T10:00:00Z"}]}`),
-		status(201, `{"id":"osk_2","name":"ci","region":"af-abj","access_key_id":"AKIA2","read_only":false,"buckets":["assets"],"created_at":"2026-11-24T11:00:00Z","secret_access_key":"super-secret-value","endpoint":"https://s3.af-abj.pantechdynamics.com"}`),
+		ok(`{"data":[{"id":"osk_1","name":"backups","region":"af-abj","access_key_id":"AKIA1","read_only":true,"permissions":"read_only","buckets":["assets"],"prefixes":["uploads/"],"created_at":"2026-11-24T10:00:00Z","expires_at":"2027-01-01T00:00:00Z"}]}`),
+		status(201, `{"id":"osk_2","name":"ci","region":"af-abj","access_key_id":"AKIA2","read_only":false,"permissions":"write_only","buckets":["assets"],"prefixes":["ci/"],"created_at":"2026-11-24T11:00:00Z","expires_at":"2027-06-01T00:00:00Z","secret_access_key":"super-secret-value","endpoint":"https://s3.af-abj.pantechdynamics.com"}`),
 		status(204, ``),
 	)
 	c := newTestClientAt(t, rec.srv.URL)
@@ -24,16 +25,27 @@ func TestObjectStorageStatusUsageAndKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !st.Enabled || !st.DirectUploadEnabled || st.Limits == nil || st.Limits.MaxBuckets != 25 {
+	if !st.Enabled || !st.DirectUploadEnabled || st.BlockPublicAccess == nil || *st.BlockPublicAccess || st.Limits == nil || st.Limits.MaxBuckets != 25 {
 		t.Fatalf("unexpected status: %+v", st)
+	}
+
+	settings, err := c.ObjectStorage.UpdateSettings(ctx, UpdateObjectStorageSettingsRequest{BlockPublicAccess: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !settings.BlockPublicAccess || rec.request(1).Method != "PATCH" || rec.request(1).URL.Path != "/public/v1/object-storage/settings" {
+		t.Fatalf("unexpected settings: %+v req=%s %s", settings, rec.request(1).Method, rec.request(1).URL.Path)
+	}
+	if !strings.Contains(rec.bodies[1], `"block_public_access":true`) {
+		t.Fatalf("settings body = %s", rec.bodies[1])
 	}
 
 	usage, err := c.ObjectStorage.GetUsage(ctx, &ObjectStorageUsageParams{Range: "7d"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.request(1).URL.RawQuery != "range=7d" {
-		t.Fatalf("query = %q", rec.request(1).URL.RawQuery)
+	if rec.request(2).URL.RawQuery != "range=7d" {
+		t.Fatalf("query = %q", rec.request(2).URL.RawQuery)
 	}
 	if usage.TotalBytesSent != 4096 || usage.TotalWriteOps != 5 || len(usage.Hours) != 1 {
 		t.Fatalf("unexpected usage: %+v", usage)
@@ -43,20 +55,29 @@ func TestObjectStorageStatusUsageAndKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.request(2).URL.RawQuery != "region=af-abj" || len(keys) != 1 || keys[0].ID != "osk_1" {
-		t.Fatalf("keys = %+v query = %q", keys, rec.request(2).URL.RawQuery)
+	if rec.request(3).URL.RawQuery != "region=af-abj" || len(keys) != 1 || keys[0].ID != "osk_1" ||
+		keys[0].Permissions != "read_only" || len(keys[0].Prefixes) != 1 || keys[0].Prefixes[0] != "uploads/" || keys[0].ExpiresAt == nil {
+		t.Fatalf("keys = %+v query = %q", keys, rec.request(3).URL.RawQuery)
 	}
 
+	keyExpiry := time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)
 	created, err := c.ObjectStorage.CreateKey(ctx, CreateObjectStorageKeyRequest{
-		Name:    "ci",
-		Region:  Ptr("af-abj"),
-		Buckets: Ptr([]string{"assets"}),
+		Name:        "ci",
+		Region:      Ptr("af-abj"),
+		Permissions: Ptr("write_only"),
+		Buckets:     Ptr([]string{"assets"}),
+		Prefixes:    Ptr([]string{"ci/"}),
+		ExpiresAt:   &keyExpiry,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.SecretAccessKey != "super-secret-value" || created.Endpoint != "https://s3.af-abj.pantechdynamics.com" {
-		t.Fatalf("unexpected created key")
+	if created.SecretAccessKey != "super-secret-value" || created.Endpoint != "https://s3.af-abj.pantechdynamics.com" ||
+		created.Permissions != "write_only" || len(created.Prefixes) != 1 || created.ExpiresAt == nil {
+		t.Fatalf("unexpected created key: %+v", created)
+	}
+	if !strings.Contains(rec.bodies[4], `"permissions":"write_only"`) || !strings.Contains(rec.bodies[4], `"prefixes":["ci/"]`) || !strings.Contains(rec.bodies[4], `"expires_at":"2027-06-01T00:00:00Z"`) {
+		t.Fatalf("create key body = %s", rec.bodies[4])
 	}
 	if strings.Contains(fmt.Sprint(created), "super-secret-value") || strings.Contains(fmt.Sprintf("%#v", created), "super-secret-value") {
 		t.Fatalf("CreatedObjectStorageKey leaked secret in fmt output: %s", fmt.Sprint(created))
@@ -65,17 +86,17 @@ func TestObjectStorageStatusUsageAndKeys(t *testing.T) {
 	if err := c.ObjectStorage.RevokeKey(ctx, "osk_2"); err != nil {
 		t.Fatal(err)
 	}
-	if req := rec.request(4); req.Method != "DELETE" || req.URL.Path != "/public/v1/object-storage/keys/osk_2" {
+	if req := rec.request(5); req.Method != "DELETE" || req.URL.Path != "/public/v1/object-storage/keys/osk_2" {
 		t.Fatalf("revoke sent %s %s", req.Method, req.URL.Path)
 	}
 }
 
 func TestBucketsCRUDStatsAndEmpty(t *testing.T) {
 	rec := newRecorder(t,
-		ok(`{"data":[{"id":"bkt_1","name":"assets","region":"af-abj","endpoint":"https://s3.af-abj.pantechdynamics.com","quota_bytes":0,"size_bytes":1024,"object_count":2,"versioning":true,"object_lock":false,"public_prefixes":["public/"],"state":"active","created_at":"2026-11-24T10:00:00Z","retired_at":null,"purge_due_at":null}]}`),
-		status(201, `{"id":"bkt_2","name":"backups","region":"af-abj","endpoint":"https://s3.af-abj.pantechdynamics.com","quota_bytes":1073741824,"size_bytes":0,"object_count":0,"versioning":true,"object_lock":true,"public_prefixes":[],"state":"provisioning","created_at":"2026-11-24T10:05:00Z","retired_at":null,"purge_due_at":null,"operation_id":"op_1"}`),
-		ok(`{"id":"bkt_2","name":"backups","region":"af-abj","endpoint":"https://s3.af-abj.pantechdynamics.com","quota_bytes":1073741824,"size_bytes":0,"object_count":0,"versioning":true,"object_lock":true,"public_prefixes":[],"state":"active","created_at":"2026-11-24T10:05:00Z","retired_at":null,"purge_due_at":null}`),
-		ok(`{"id":"bkt_2","name":"backups","region":"af-abj","endpoint":"https://s3.af-abj.pantechdynamics.com","quota_bytes":2147483648,"size_bytes":0,"object_count":0,"versioning":true,"object_lock":true,"public_prefixes":["pub/"],"state":"updating","created_at":"2026-11-24T10:05:00Z","retired_at":null,"purge_due_at":null,"operation_id":"op_2"}`),
+		ok(`{"data":[{"id":"bkt_1","name":"assets","region":"af-abj","endpoint":"https://s3.af-abj.pantechdynamics.com","quota_bytes":0,"size_bytes":1024,"object_count":2,"versioning":true,"object_lock":false,"encryption":"none","public_prefixes":["public/"],"state":"active","created_at":"2026-11-24T10:00:00Z","retired_at":null,"purge_due_at":null}]}`),
+		status(201, `{"id":"bkt_2","name":"backups","region":"af-abj","endpoint":"https://s3.af-abj.pantechdynamics.com","quota_bytes":1073741824,"size_bytes":0,"object_count":0,"versioning":true,"object_lock":true,"encryption":"sse_s3","public_prefixes":[],"state":"provisioning","created_at":"2026-11-24T10:05:00Z","retired_at":null,"purge_due_at":null,"operation_id":"op_1"}`),
+		ok(`{"id":"bkt_2","name":"backups","region":"af-abj","endpoint":"https://s3.af-abj.pantechdynamics.com","quota_bytes":1073741824,"size_bytes":0,"object_count":0,"versioning":true,"object_lock":true,"encryption":"sse_s3","public_prefixes":[],"state":"active","created_at":"2026-11-24T10:05:00Z","retired_at":null,"purge_due_at":null}`),
+		ok(`{"id":"bkt_2","name":"backups","region":"af-abj","endpoint":"https://s3.af-abj.pantechdynamics.com","quota_bytes":2147483648,"size_bytes":0,"object_count":0,"versioning":true,"object_lock":true,"encryption":"none","public_prefixes":["pub/"],"state":"updating","created_at":"2026-11-24T10:05:00Z","retired_at":null,"purge_due_at":null,"operation_id":"op_2"}`),
 		ok(`{"size_bytes":4096,"object_count":7}`),
 		ok(`{"deleted_count":5,"aborted_uploads":1,"locked_count":2,"sample_locked_keys":["legal/a.pdf"]}`),
 		status(202, `{"operation_id":"op_3","resource_id":"bkt_2","status":"submitting"}`),
@@ -84,7 +105,7 @@ func TestBucketsCRUDStatsAndEmpty(t *testing.T) {
 	ctx := context.Background()
 
 	list, err := c.Buckets.List(ctx)
-	if err != nil || len(list) != 1 || list[0].ID != "bkt_1" {
+	if err != nil || len(list) != 1 || list[0].ID != "bkt_1" || list[0].Encryption != "none" {
 		t.Fatalf("list = %+v err = %v", list, err)
 	}
 
@@ -93,22 +114,30 @@ func TestBucketsCRUDStatsAndEmpty(t *testing.T) {
 		QuotaBytes: Ptr(int64(1073741824)),
 		Versioning: Ptr(true),
 		ObjectLock: Ptr(true),
+		Encryption: Ptr("sse_s3"),
 	})
-	if err != nil || created.ID != "bkt_2" || created.OperationID != "op_1" {
+	if err != nil || created.ID != "bkt_2" || created.OperationID != "op_1" || created.Encryption != "sse_s3" {
 		t.Fatalf("created = %+v err = %v", created, err)
+	}
+	if !strings.Contains(rec.bodies[1], `"encryption":"sse_s3"`) {
+		t.Fatalf("create bucket body = %s", rec.bodies[1])
 	}
 
 	got, err := c.Buckets.Get(ctx, "bkt_2")
-	if err != nil || got.State != "active" {
+	if err != nil || got.State != "active" || got.Encryption != "sse_s3" {
 		t.Fatalf("got = %+v err = %v", got, err)
 	}
 
 	updated, err := c.Buckets.Update(ctx, "bkt_2", UpdateBucketRequest{
 		QuotaBytes:     Ptr(int64(2147483648)),
+		Encryption:     Ptr("none"),
 		PublicPrefixes: Ptr([]string{"pub/"}),
 	})
-	if err != nil || updated.OperationID == nil || *updated.OperationID != "op_2" {
+	if err != nil || updated.OperationID == nil || *updated.OperationID != "op_2" || updated.Encryption != "none" {
 		t.Fatalf("updated = %+v err = %v", updated, err)
+	}
+	if !strings.Contains(rec.bodies[3], `"encryption":"none"`) {
+		t.Fatalf("update bucket body = %s", rec.bodies[3])
 	}
 
 	stats, err := c.Buckets.GetStats(ctx, "bkt_2")
@@ -187,7 +216,7 @@ func TestBucketObjectsOperations(t *testing.T) {
 	rec := newRecorder(t,
 		ok(`{"prefix":"img/","folders":["img/thumbs/"],"objects":[{"key":"img/logo.png","size_bytes":6,"etag":"e1","content_type":"image/png","last_modified":"2026-11-24T12:00:00Z","storage_class":"STANDARD","version_id":"v1","is_latest":true,"public":true,"object_public":true,"public_source":"object","public_url":"https://api.pantechdynamics.com/storage/public/bkt_1/img/logo.png"}],"next_cursor":"c2","is_truncated":true}`),
 		ok(`{"versions":[{"key":"img/logo.png","version_id":"v1","is_latest":true,"is_delete_marker":false,"size_bytes":6,"etag":"e1","last_modified":"2026-11-24T12:00:00Z","storage_class":"STANDARD"}],"next_key_marker":"","next_version_id_marker":"","is_truncated":false}`),
-		ok(`{"key":"img/logo.png","size_bytes":6,"etag":"e1","content_type":"image/png","cache_control":"max-age=60","content_disposition":"inline","last_modified":"2026-11-24T12:00:00Z","storage_class":"STANDARD","version_id":"v1","metadata":{"author":"ops"},"tags":[{"key":"env","value":"prod"}],"retention_mode":"GOVERNANCE","retain_until":"2026-12-24T12:00:00Z","legal_hold":true,"public":true,"object_public":true,"public_source":"object","public_url":"https://api.pantechdynamics.com/storage/public/bkt_1/img/logo.png"}`),
+		ok(`{"key":"img/logo.png","size_bytes":6,"etag":"e1","content_type":"image/png","cache_control":"max-age=60","content_disposition":"inline","last_modified":"2026-11-24T12:00:00Z","storage_class":"STANDARD","version_id":"v1","metadata":{"author":"ops"},"tags":[{"key":"env","value":"prod"}],"retention_mode":"GOVERNANCE","retain_until":"2026-12-24T12:00:00Z","legal_hold":true,"public":true,"object_public":true,"public_source":"object","public_url":"https://api.pantechdynamics.com/storage/public/bkt_1/img/logo.png","server_side_encryption":"AES256"}`),
 		cannedResponse{status: 200, body: string(rawContent), header: map[string]string{"Content-Type": "image/png"}},
 		ok(`{"direct":true,"url":"https://s3.af-abj.pantechdynamics.com/signed-get","expires_in_seconds":300}`),
 		ok(`{"key":"img/logo.png","size_bytes":6,"etag":"e1","content_type":"image/png","last_modified":"2026-11-24T12:00:00Z","version_id":"v1","public":true,"object_public":true,"public_source":"object","public_url":"https://api.pantechdynamics.com/storage/public/bkt_1/img/logo.png"}`),
@@ -221,7 +250,7 @@ func TestBucketObjectsOperations(t *testing.T) {
 	}
 
 	meta, err := c.Buckets.GetObjectMeta(ctx, "bkt_1", &BucketObjectMetaParams{Key: "img/logo.png", VersionID: "v1"})
-	if err != nil || meta.Metadata["author"] != "ops" || !meta.LegalHold || meta.RetainUntil == nil {
+	if err != nil || meta.Metadata["author"] != "ops" || !meta.LegalHold || meta.RetainUntil == nil || meta.ServerSideEncryption != "AES256" {
 		t.Fatalf("meta = %+v err = %v", meta, err)
 	}
 
@@ -386,5 +415,176 @@ func TestBucketMultipartFlow(t *testing.T) {
 		UploadID: "up_2",
 	}); err != nil {
 		t.Fatalf("abort: %v", err)
+	}
+}
+
+func TestBucketUploadFormRestoreAndMultipartHelpers(t *testing.T) {
+	rec := newRecorder(t,
+		ok(`{"url":"https://s3.af-abj.pantechdynamics.com/assets","fields":{"key":"uploads/${filename}","policy":"abc","x-amz-signature":"sig"},"expires_at":"2026-11-28T13:00:00Z","bucket_name":"assets"}`),
+		ok(`{"key":"docs/spec.pdf","action":"copied_version","restored_version_id":"v1","version_id":"v3","etag":"e1","last_modified":"2026-11-28T12:30:00Z"}`),
+		ok(`{"key":"docs/deleted.pdf","action":"removed_delete_marker","restored_version_id":"dm1","version_id":"","etag":"","last_modified":""}`),
+		ok(`{"uploads":[{"key":"archive.tar.zst","upload_id":"up_1","initiated":"2026-11-28T12:00:00Z"}]}`),
+		ok(`{"parts":[{"part_number":1,"url":"https://s3.af-abj.pantechdynamics.com/p1"},{"part_number":2,"url":"https://s3.af-abj.pantechdynamics.com/p2"}],"expires_in_seconds":900}`),
+	)
+	c := newTestClientAt(t, rec.srv.URL)
+	ctx := context.Background()
+
+	form, err := c.Buckets.CreateUploadForm(ctx, "bkt_1", CreateBucketUploadFormRequest{
+		KeyPrefix:        Ptr("uploads/"),
+		MinBytes:         Ptr(int64(1)),
+		MaxBytes:         Ptr(int64(10485760)),
+		ContentType:      Ptr("image/png"),
+		ExpiresInSeconds: Ptr(int64(600)),
+	})
+	if err != nil || form.BucketName != "assets" || form.Fields["key"] != "uploads/${filename}" || form.ExpiresAt.Year() != 2026 {
+		t.Fatalf("upload form = %+v err = %v", form, err)
+	}
+	if !strings.Contains(rec.bodies[0], `"key_prefix":"uploads/"`) || !strings.Contains(rec.bodies[0], `"max_bytes":10485760`) {
+		t.Fatalf("upload form body = %s", rec.bodies[0])
+	}
+
+	restored, err := c.Buckets.RestoreObjectVersion(ctx, "bkt_1", RestoreBucketObjectVersionRequest{
+		Key:       "docs/spec.pdf",
+		VersionID: Ptr("v1"),
+	})
+	if err != nil || restored.Action != "copied_version" || restored.VersionID != "v3" || restored.RestoredVersionID != "v1" {
+		t.Fatalf("restore version = %+v err = %v", restored, err)
+	}
+
+	undeleted, err := c.Buckets.RestoreObjectVersion(ctx, "bkt_1", RestoreBucketObjectVersionRequest{
+		Key: "docs/deleted.pdf",
+	})
+	if err != nil || undeleted.Action != "removed_delete_marker" || undeleted.LastModified != "" {
+		t.Fatalf("undelete = %+v err = %v", undeleted, err)
+	}
+
+	uploads, err := c.Buckets.ListMultipartUploads(ctx, "bkt_1")
+	if err != nil || len(uploads) != 1 || uploads[0].UploadID != "up_1" || uploads[0].Key != "archive.tar.zst" {
+		t.Fatalf("list multipart uploads = %+v err = %v", uploads, err)
+	}
+
+	signedBatch, err := c.Buckets.SignMultipartParts(ctx, "bkt_1", SignMultipartPartsRequest{
+		Key:         "archive.tar.zst",
+		UploadID:    "up_1",
+		PartNumbers: []int{1, 2},
+	})
+	if err != nil || len(signedBatch.Parts) != 2 || signedBatch.Parts[1].PartNumber != 2 || signedBatch.ExpiresInSeconds != 900 {
+		t.Fatalf("sign multipart parts = %+v err = %v", signedBatch, err)
+	}
+}
+
+func TestBucketSharesNotificationsAndDomains(t *testing.T) {
+	rec := newRecorder(t,
+		ok(`{"data":[{"share_id":"bsh_1","bucket_id":"bkt_9","bucket_name":"partner-data","region":"af-abj","endpoint":"https://s3.af-abj.pantechdynamics.com","owner_organization_id":"org_owner","permissions":"read_only","prefixes":["exports/"],"expires_at":"2027-01-01T00:00:00Z","created_at":"2026-11-28T10:00:00Z","s3_bucket_ref":"org_owner:partner-data"}],"next_cursor":null}`),
+		ok(`{"data":[{"id":"bsh_2","bucket_id":"bkt_1","owner_organization_id":"org_1","grantee_organization_id":"org_2","permissions":"read_write","prefixes":["shared/"],"expires_at":null,"revoked_at":null,"created_at":"2026-11-28T10:00:00Z","updated_at":"2026-11-28T10:00:00Z"}],"next_cursor":null}`),
+		status(201, `{"id":"bsh_3","bucket_id":"bkt_1","owner_organization_id":"org_1","grantee_organization_id":"org_3","permissions":"read_only","prefixes":["reports/"],"expires_at":"2027-02-01T00:00:00Z","revoked_at":null,"created_at":"2026-11-28T11:00:00Z","updated_at":"2026-11-28T11:00:00Z"}`),
+		status(204, ``),
+		ok(`{"data":[{"id":"bnt_1","bucket_id":"bkt_1","name":"uploads-hook","events":["object.created"],"prefix":"uploads/","suffix":".png","target_type":"webhook","target_id":"wh_1","enabled":true,"created_at":"2026-11-28T10:00:00Z","updated_at":"2026-11-28T10:00:00Z"}],"next_cursor":null}`),
+		status(201, `{"id":"bnt_2","bucket_id":"bkt_1","name":"fn-trigger","events":["object.created","object.removed"],"prefix":"in/","suffix":".csv","target_type":"function","target_id":"fn_1","enabled":true,"created_at":"2026-11-28T11:00:00Z","updated_at":"2026-11-28T11:00:00Z"}`),
+		ok(`{"id":"bnt_2","bucket_id":"bkt_1","name":"fn-trigger","events":["object.removed"],"prefix":"in/","suffix":".json","target_type":"function","target_id":"fn_1","enabled":false,"created_at":"2026-11-28T11:00:00Z","updated_at":"2026-11-28T12:00:00Z"}`),
+		status(204, ``),
+		ok(`{"data":[{"id":"bdom_1","bucket_id":"bkt_1","hostname":"cdn.example.com","certificate_id":"crt_1","index_document":"index.html","error_document":"404.html","spa_mode":true,"cache_ttl_seconds":3600,"status":"active","created_at":"2026-11-28T10:00:00Z","updated_at":"2026-11-28T10:00:00Z"}],"next_cursor":null}`),
+		status(201, `{"id":"bdom_2","bucket_id":"bkt_1","hostname":"docs.example.com","certificate_id":"crt_2","index_document":"index.html","error_document":"error.html","spa_mode":false,"cache_ttl_seconds":600,"status":"active","created_at":"2026-11-28T11:00:00Z","updated_at":"2026-11-28T11:00:00Z"}`),
+		ok(`{"id":"bdom_2","bucket_id":"bkt_1","hostname":"docs.example.com","certificate_id":"crt_3","index_document":"home.html","error_document":"404.html","spa_mode":true,"cache_ttl_seconds":1200,"status":"active","created_at":"2026-11-28T11:00:00Z","updated_at":"2026-11-28T12:00:00Z"}`),
+		status(204, ``),
+	)
+	c := newTestClientAt(t, rec.srv.URL)
+	ctx := context.Background()
+
+	shared, err := c.Buckets.ListShared(ctx)
+	if err != nil || len(shared) != 1 || shared[0].ShareID != "bsh_1" || shared[0].S3BucketRef != "org_owner:partner-data" || shared[0].ExpiresAt == nil {
+		t.Fatalf("list shared = %+v err = %v", shared, err)
+	}
+
+	shares, err := c.Buckets.ListShares(ctx, "bkt_1")
+	if err != nil || len(shares) != 1 || shares[0].ID != "bsh_2" || shares[0].GranteeOrganizationID != "org_2" {
+		t.Fatalf("list shares = %+v err = %v", shares, err)
+	}
+
+	shareExpiry := time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC)
+	createdShare, err := c.Buckets.CreateShare(ctx, "bkt_1", CreateBucketShareRequest{
+		GranteeOrganizationID: "org_3",
+		Permissions:           "read_only",
+		Prefixes:              Ptr([]string{"reports/"}),
+		ExpiresAt:             &shareExpiry,
+	})
+	if err != nil || createdShare.ID != "bsh_3" || createdShare.ExpiresAt == nil {
+		t.Fatalf("create share = %+v err = %v", createdShare, err)
+	}
+
+	if err := c.Buckets.RevokeShare(ctx, "bkt_1", "bsh_3"); err != nil {
+		t.Fatalf("revoke share: %v", err)
+	}
+	if r := rec.request(3); r.Method != "DELETE" || r.URL.Path != "/public/v1/buckets/bkt_1/shares/bsh_3" {
+		t.Fatalf("revoke share sent %s %s", r.Method, r.URL.Path)
+	}
+
+	notifs, err := c.Buckets.ListNotifications(ctx, "bkt_1")
+	if err != nil || len(notifs) != 1 || notifs[0].ID != "bnt_1" || notifs[0].TargetType != "webhook" {
+		t.Fatalf("list notifications = %+v err = %v", notifs, err)
+	}
+
+	createdNotif, err := c.Buckets.CreateNotification(ctx, "bkt_1", CreateBucketNotificationRequest{
+		Name:       "fn-trigger",
+		Events:     []string{"object.created", "object.removed"},
+		Prefix:     Ptr("in/"),
+		Suffix:     Ptr(".csv"),
+		TargetType: "function",
+		TargetID:   "fn_1",
+		Enabled:    Ptr(true),
+	})
+	if err != nil || createdNotif.ID != "bnt_2" || len(createdNotif.Events) != 2 {
+		t.Fatalf("create notification = %+v err = %v", createdNotif, err)
+	}
+
+	updatedNotif, err := c.Buckets.UpdateNotification(ctx, "bkt_1", "bnt_2", UpdateBucketNotificationRequest{
+		Events:  Ptr([]string{"object.removed"}),
+		Suffix:  Ptr(".json"),
+		Enabled: Ptr(false),
+	})
+	if err != nil || updatedNotif.Enabled || updatedNotif.Suffix != ".json" {
+		t.Fatalf("update notification = %+v err = %v", updatedNotif, err)
+	}
+
+	if err := c.Buckets.DeleteNotification(ctx, "bkt_1", "bnt_2"); err != nil {
+		t.Fatalf("delete notification: %v", err)
+	}
+	if r := rec.request(7); r.Method != "DELETE" || r.URL.Path != "/public/v1/buckets/bkt_1/notifications/bnt_2" {
+		t.Fatalf("delete notification sent %s %s", r.Method, r.URL.Path)
+	}
+
+	domains, err := c.Buckets.ListDomains(ctx, "bkt_1")
+	if err != nil || len(domains) != 1 || domains[0].ID != "bdom_1" || !domains[0].SPAMode || domains[0].CacheTTLSeconds != 3600 {
+		t.Fatalf("list domains = %+v err = %v", domains, err)
+	}
+
+	createdDomain, err := c.Buckets.CreateDomain(ctx, "bkt_1", CreateBucketDomainRequest{
+		Hostname:        "docs.example.com",
+		CertificateID:   "crt_2",
+		IndexDocument:   Ptr("index.html"),
+		ErrorDocument:   Ptr("error.html"),
+		SPAMode:         Ptr(false),
+		CacheTTLSeconds: Ptr(600),
+	})
+	if err != nil || createdDomain.ID != "bdom_2" || createdDomain.Hostname != "docs.example.com" {
+		t.Fatalf("create domain = %+v err = %v", createdDomain, err)
+	}
+
+	updatedDomain, err := c.Buckets.UpdateDomain(ctx, "bkt_1", "bdom_2", UpdateBucketDomainRequest{
+		CertificateID:   Ptr("crt_3"),
+		IndexDocument:   Ptr("home.html"),
+		ErrorDocument:   Ptr("404.html"),
+		SPAMode:         Ptr(true),
+		CacheTTLSeconds: Ptr(1200),
+	})
+	if err != nil || updatedDomain.CertificateID != "crt_3" || !updatedDomain.SPAMode || updatedDomain.CacheTTLSeconds != 1200 {
+		t.Fatalf("update domain = %+v err = %v", updatedDomain, err)
+	}
+
+	if err := c.Buckets.DeleteDomain(ctx, "bkt_1", "bdom_2"); err != nil {
+		t.Fatalf("delete domain: %v", err)
+	}
+	if r := rec.request(11); r.Method != "DELETE" || r.URL.Path != "/public/v1/buckets/bkt_1/domains/bdom_2" {
+		t.Fatalf("delete domain sent %s %s", r.Method, r.URL.Path)
 	}
 }

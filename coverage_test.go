@@ -308,6 +308,7 @@ var operationMethods = map[string]any{
 	"quoteDNSZones":                     (*DNSService).QuoteZones,
 	"getObjectStorage":                  (*ObjectStorageService).GetStatus,
 	"getObjectStorageUsage":             (*ObjectStorageService).GetUsage,
+	"updateObjectStorageSettings":       (*ObjectStorageService).UpdateSettings,
 	"listObjectStorageKeys":             (*ObjectStorageService).ListKeys,
 	"createObjectStorageKey":            (*ObjectStorageService).CreateKey,
 	"revokeObjectStorageKey":            (*ObjectStorageService).RevokeKey,
@@ -324,14 +325,18 @@ var operationMethods = map[string]any{
 	"presignBucketObjectDownload":       (*BucketsService).PresignDownload,
 	"uploadBucketObject":                (*BucketsService).UploadObject,
 	"presignBucketObjectUpload":         (*BucketsService).PresignUpload,
+	"createBucketUploadForm":            (*BucketsService).CreateUploadForm,
 	"createBucketFolder":                (*BucketsService).CreateFolder,
 	"copyBucketObject":                  (*BucketsService).CopyObject,
 	"deleteBucketObjects":               (*BucketsService).DeleteObjects,
 	"putBucketObjectTags":               (*BucketsService).PutObjectTags,
-	"putBucketObjectLock":               (*BucketsService).PutObjectLock,
+	"putObjectLock":                     (*BucketsService).PutObjectLock,
 	"putBucketObjectVisibility":         (*BucketsService).PutObjectVisibility,
+	"restoreBucketObjectVersion":        (*BucketsService).RestoreObjectVersion,
+	"listBucketMultipartUploads":        (*BucketsService).ListMultipartUploads,
 	"startBucketMultipartUpload":        (*BucketsService).StartMultipartUpload,
 	"signBucketMultipartPart":           (*BucketsService).SignMultipartPart,
+	"signBucketMultipartParts":          (*BucketsService).SignMultipartParts,
 	"uploadBucketMultipartPart":         (*BucketsService).UploadMultipartPart,
 	"completeBucketMultipartUpload":     (*BucketsService).CompleteMultipartUpload,
 	"abortBucketMultipartUpload":        (*BucketsService).AbortMultipartUpload,
@@ -342,7 +347,19 @@ var operationMethods = map[string]any{
 	"getBucketTags":                     (*BucketsService).GetTags,
 	"putBucketTags":                     (*BucketsService).PutTags,
 	"getBucketObjectLock":               (*BucketsService).GetObjectLock,
-	"putBucketObjectLockConfig":         (*BucketsService).PutObjectLockConfig,
+	"putBucketObjectLock":               (*BucketsService).PutObjectLockConfig,
+	"listSharedBuckets":                 (*BucketsService).ListShared,
+	"listBucketShares":                  (*BucketsService).ListShares,
+	"createBucketShare":                 (*BucketsService).CreateShare,
+	"revokeBucketShare":                 (*BucketsService).RevokeShare,
+	"listBucketNotifications":           (*BucketsService).ListNotifications,
+	"createBucketNotification":          (*BucketsService).CreateNotification,
+	"updateBucketNotification":          (*BucketsService).UpdateNotification,
+	"deleteBucketNotification":          (*BucketsService).DeleteNotification,
+	"listBucketDomains":                 (*BucketsService).ListDomains,
+	"createBucketDomain":                (*BucketsService).CreateDomain,
+	"updateBucketDomain":                (*BucketsService).UpdateDomain,
+	"deleteBucketDomain":                (*BucketsService).DeleteDomain,
 	"getOperation":                      (*OperationsService).Get,
 	"streamOperation":                   (*OperationsService).Stream,
 }
@@ -350,11 +367,7 @@ var operationMethods = map[string]any{
 // aheadOfSpec are operations the SDK already supports that the spec in
 // testdata does not list yet, with the route from the API contract, so
 // TestSpecRoutes checks them too. Remove an entry once the spec has it.
-var aheadOfSpec = map[string]specOperation{
-	// The published spec names this route putBucketObjectLock as well as the
-	// object's own lock; the SDK keeps the two apart.
-	"putBucketObjectLockConfig": {method: http.MethodPut, path: "/buckets/{bucket_id}/object-lock"},
-}
+var aheadOfSpec = map[string]specOperation{}
 
 // notInSDK are spec operations the SDK deliberately has no method for yet,
 // each with the reason. Agent sessions answer only AI apps connected through

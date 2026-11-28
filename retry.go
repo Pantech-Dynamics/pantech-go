@@ -38,6 +38,7 @@ var noReplay = []struct {
 	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/empty$`)},
 	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/copy$`)},
 	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/delete$`)},
+	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/restore-version$`)},
 	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/multipart/start$`)},
 	{http.MethodPost, regexp.MustCompile(`^/buckets/[^/]+/objects/multipart/complete$`)},
 	{http.MethodPost, regexp.MustCompile(`^/cloud-connections/[^/]+/agent-enrollments$`)},
